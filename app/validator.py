@@ -201,25 +201,38 @@ def verify_fee_or_docs(quote: str, fee_or_docs: str) -> Tuple[bool, str]:
     clean_val = re.sub(r"[^\w\s\$৳]", "", fee_or_docs.lower())
 
     # 1. Verify Monetary Fees
+    # Extract monetary patterns e.g. $15, 15 dollars, 15 টাকা, 15 tk
     fee_patterns = re.findall(r"(\$\s*\d+(?:\.\d{2})?|\d+\s*(?:dollars?|টাকা|tk))", clean_val)
     if fee_patterns:
         for fee in fee_patterns:
             fee_clean = re.sub(r"\s+", "", fee)
             quote_clean = re.sub(r"\s+", "", clean_quote)
-            if fee_clean not in quote_clean:
+            has_fee_evidence = False
+            # Check exact currency + amount substring match in quote
+            if fee_clean in quote_clean:
+                has_fee_evidence = True
+            else:
                 num_match = re.search(r"\d+", fee)
-                if not num_match or num_match.group(0) not in re.findall(r"\b\d+\b", clean_quote):
-                    return False, "FEE_NOT_IN_SUPPORTING_QUOTE"
+                if num_match:
+                    num = num_match.group(0)
+                    # Require explicit fee/monetary context around that number in the quote
+                    # (Prevent bare numbers in "15 teachers" or "grade 10" from satisfying a fee claim)
+                    fee_ctx = rf"(?:\$|৳|\btk\b|\bdollars?\b|\bfee\b|\bfees\b|\bcost\b|\bcharge\b|\bcharges\b|\bটাকা\b)\s*{num}|{num}\s*(?:\$|৳|\btk\b|\bdollars?\b|\bটাকা\b|\btk\b)"
+                    if re.search(fee_ctx, norm_quote, re.IGNORECASE):
+                        has_fee_evidence = True
+            if not has_fee_evidence:
+                return False, "FEE_NOT_IN_SUPPORTING_QUOTE"
 
     # 2. Verify Key Document Requirements
-    cleaned_docs = re.sub(r"\b(fee|document|required|form|fee:)\s*", " ", fee_or_docs, flags=re.IGNORECASE)
+    cleaned_docs = re.sub(r"\b(fee|document|required|forms?|fee:)\s*", " ", fee_or_docs, flags=re.IGNORECASE)
     doc_words = [
         w for w in re.sub(r"[^\w\s]", "", cleaned_docs.lower()).split()
-        if len(w) > 3 and w not in ["student", "teachers", "stated", "none", "each", "team", "final", "before"]
+        if len(w) >= 3 and w not in ["student", "students", "teachers", "stated", "none", "each", "team", "final", "before", "with", "from", "and", "the"]
     ]
     if doc_words:
+        # Conservative check: Every material document term must be supported in quote
         missing = [w for w in doc_words if w not in clean_quote]
-        if len(missing) > len(doc_words) / 2:
+        if missing:
             return False, "DOCS_NOT_IN_SUPPORTING_QUOTE"
 
     return True, "FEE_DOCS_GROUNDED_IN_QUOTE"
@@ -418,25 +431,36 @@ def validate_action_item(notice_text: str, item: Dict[str, Any]) -> Dict[str, An
     # 2. Verify Deadline
     deadline_ok, deadline_category = verify_deadline(notice_text, source_quote, deadline)
 
-    # 3. Verify Assignee Grounding
+    # 3. Verify Assignee Grounding (Strictly against Supporting Quote)
     norm_notice = normalize_whitespace(notice_text).lower()
+    norm_quote = normalize_whitespace(source_quote).lower() if source_quote else ""
     norm_assignee = normalize_whitespace(assignee).lower()
+    assignee_tokens = [t for t in norm_assignee.split() if (len(t) > 2 or t.isdigit()) and t not in ["all", "the", "and", "for", "with"]]
+    role_stop_words = {"all", "the", "and", "for", "with", "teachers", "teacher", "staff", "members"}
+    distinguishing_tokens = [t for t in assignee_tokens if t not in role_stop_words]
+
     if assignee.upper() in ["NOT STATED", "UNSPECIFIED", "GENERAL", "ALL STAFF", ""]:
         assignee_status = "EXPLICIT_NOT_STATED"
         assignee_grounded = True
-    elif norm_assignee in norm_notice:
-        assignee_status = "ROLE_FOUND_IN_TEXT"
+    elif norm_quote and (norm_assignee in norm_quote or (assignee_tokens and all(t in norm_quote for t in assignee_tokens))):
+        assignee_status = "ROLE_FOUND_IN_QUOTE"
         assignee_grounded = True
+    elif distinguishing_tokens and not any(t in norm_quote for t in distinguishing_tokens) and any(t in norm_notice for t in distinguishing_tokens):
+        # Distinguishing role name (e.g. 'homeroom') is in circular, but absent from this quote!
+        assignee_status = "ROLE_NOT_IN_SUPPORTING_QUOTE"
+        assignee_grounded = False
+    elif norm_quote and assignee_tokens and any(t in norm_quote for t in assignee_tokens):
+        # Some tokens in quote, but specific grade or role conflicts (e.g. Grade 12 vs Grade 10)
+        assignee_status = "ROLE_PARTIAL_MATCH"
+        assignee_grounded = False
+    elif norm_assignee in norm_notice or (assignee_tokens and any(t in norm_notice for t in assignee_tokens)):
+        # Role exists elsewhere in circular, but is absent from this action's evidence quote!
+        # Multi-role confusion trap: Assignee assigned to the wrong action
+        assignee_status = "ROLE_NOT_IN_SUPPORTING_QUOTE"
+        assignee_grounded = False
     else:
-        # Partial match is ambiguous (e.g. Grade 12 vs Grade 10) -> MUST FAIL CLOSED for human review
-        assignee_tokens = [t for t in norm_assignee.split() if len(t) > 2]
-        matches = [t for t in assignee_tokens if t in norm_notice]
-        if matches:
-            assignee_status = "ROLE_PARTIAL_MATCH"
-            assignee_grounded = False  # Strict fail-closed!
-        else:
-            assignee_status = "ROLE_UNGROUNDED"
-            assignee_grounded = False
+        assignee_status = "ROLE_UNGROUNDED"
+        assignee_grounded = False
 
     # 4. Check Contradictions
     is_contradictory = (
@@ -519,9 +543,9 @@ def validate_action_item(notice_text: str, item: Dict[str, Any]) -> Dict[str, An
     elif not assignee_grounded:
         status = "FLAGGED_FOR_HUMAN_REVIEW"
         badge = "warning"
-        if assignee_status == "ROLE_PARTIAL_MATCH":
+        if assignee_status in ["ROLE_PARTIAL_MATCH", "ROLE_NOT_IN_SUPPORTING_QUOTE"]:
             badge_text = "⚠️ Role Mismatch (Review)"
-            notes = f"Assigned role '{assignee}' only partially matches circular text. Teacher review required to verify specific grade or role."
+            notes = f"Assigned role '{assignee}' does not match this action's evidence quote. Teacher review required to verify specific grade or role."
         else:
             badge_text = "⚠️ Role Warning"
             notes = "Assigned role could not be grounded in circular text."

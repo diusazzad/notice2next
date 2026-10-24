@@ -7,7 +7,7 @@
 [![Model](https://img.shields.io/badge/Model-Google%20Gemma%202-8e44ad)](https://ai.google.dev/gemma)
 [![Python](https://img.shields.io/badge/Python-3.11%20%7C%203.13-3776ab?logo=python&logoColor=white)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Tests: 28 Passed](https://img.shields.io/badge/Tests-28%20Passed%20(100%25)-success)](tests/test_notice2next.py)
+[![Tests: 31 Passed](https://img.shields.io/badge/Tests-31%20Passed%20(100%25)-success)](tests/test_notice2next.py)
 
 ---
 
@@ -56,8 +56,8 @@ The notice text is processed by **Google Gemma 2** (`google/gemma-2-9b-it`) via 
 Before any action reaches the teacher, our Python validation layer inspects every field:
 1. **Strict Verbatim Substring Matching:** Verifies that `source_quote` exists **verbatim** in the circular. If a candidate quote only matches after stripping punctuation (`PUNCTUATION_STRIPPED_WORD_MATCH`), it is **not** granted verified status; it is flagged for teacher review.
 2. **Semantic Date Component Parsing:** Separates calendar year, month, and day from clock times, eliminating substring matching collisions (e.g. day 3 vs 30, or hour 3:00 PM).
-3. **Fail-Closed Role Matching:** Partial role matches (e.g. "Grade 12 Science Teachers" vs "Grade 10 Science Teachers") are flagged for human review (`ROLE_PARTIAL_MATCH`) rather than accepted as verified.
-4. **Fee & Required Document Grounding:** Validates monetary amounts and required forms against the supporting quote. If a fee is invented without source evidence, it is rejected and flagged for review.
+3. **Quote-Scoped Assignee Grounding:** Roles are strictly validated against this specific action's supporting quote. A role from a different clause (e.g. Homeroom Teachers in Clause 2) assigned to a Science task in Clause 1 is flagged as `ROLE_NOT_IN_SUPPORTING_QUOTE`. Partial role mismatches (`ROLE_PARTIAL_MATCH`) fail closed for human review.
+4. **Contextual Fee & Required Document Grounding:** Validates monetary amounts with explicit currency context against the supporting quote (preventing bare numbers like "15 teachers" from satisfying a fee claim). Required documents undergo conservative evidence checking: any missing material document term triggers review (`DOCS_NOT_IN_SUPPORTING_QUOTE`).
 5. **Semantic Distinction:** Verifying that a quote exists in the text does **not** prove that the action verb was interpreted without error. Notice2Next explicitly marks the action field: `🔍 Action Intent (Teacher Review Needed)`.
 6. **Explicit `NOT STATED` Enforcement:** If a notice mentions a task without a date, the engine strictly enforces `deadline: "NOT STATED"`.
 7. **Historical Date Trap Protection:** Ensures historical reference dates (e.g., "Founded in 1974", "National Day March 26") are not misattributed as task deadlines.
@@ -85,7 +85,7 @@ To maintain transparency, Notice2Next includes an automated evaluation benchmark
 | **Case 5** | Multi-Role Bangla Circular (শ্রেণি শিক্ষক ও আইসিটি) | Bangla | 2 | 2 | **100% Verbatim** | ✓ Distinct duties & deadlines extracted for homeroom vs lab staff. |
 | **Case 6** | Contradictory & Malformed Staff Note | English | 1 | 1 | **Flagged Review** | ✓ Correctly flagged contradictory timing (10 AM vs 5 PM) for human educator review. |
 
-**Regression Suite Result:** **100% Pass Rate (6/6 Scenarios Passed, 28/28 Automated Unit & Integration Tests Passed in 0.65s)**.
+**Regression Suite Result:** **100% Pass Rate (6/6 Scenarios Passed, 31/31 Automated Unit & Integration Tests Passed in 0.68s)**.
 
 *Disclaimer: This benchmark measures pipeline consistency across 6 synthetic test scenarios as a deterministic regression test, not a live Gemma accuracy evaluation. It demonstrates boundary enforcement but does not claim universal accuracy across all school systems.*
 

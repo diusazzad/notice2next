@@ -26,6 +26,7 @@ from app.extractor import (
 from app.validator import (
     verify_source_quote,
     verify_deadline,
+    verify_fee_or_docs,
     validate_action_item,
     validate_extracted_checklist,
     normalize_whitespace
@@ -197,7 +198,7 @@ def test_independent_field_evidence_generation():
     assert "field_evidence" in val
     assert val["field_evidence"]["quote"]["is_strict_substring"] is True
     assert val["field_evidence"]["action"]["is_semantically_proven"] is False
-    assert val["field_evidence"]["assignee"]["status"] == "ROLE_FOUND_IN_TEXT"
+    assert val["field_evidence"]["assignee"]["status"] in ["ROLE_FOUND_IN_TEXT", "ROLE_FOUND_IN_QUOTE"]
     assert val["field_evidence"]["deadline"]["status"] == "DEADLINE_GROUNDED_IN_QUOTE"
 
 
@@ -385,6 +386,72 @@ def test_verify_fee_or_docs_hallucinated_fee_rejected():
     assert val["validation_status"] == "FLAGGED_FOR_HUMAN_REVIEW"
     assert val["field_evidence"]["fee_or_docs"]["is_grounded"] is False
     assert "Fee Mismatch" in val["validation_badge_text"]
+
+
+# 10. Fee Numeric Collision Check (P0 Regression: Number in quote in non-fee context MUST fail)
+def test_verify_fee_numeric_amount_without_monetary_context_rejected():
+    """P0 Regression: Quote 'There are 15 teachers. No fee is required.' must NOT accept candidate fee '$15 per student'."""
+    quote = "There are 15 teachers. No fee is required."
+    candidate_fee = "$15 per student"
+
+    ok, reason = verify_fee_or_docs(quote, candidate_fee)
+    assert ok is False
+    assert reason == "FEE_NOT_IN_SUPPORTING_QUOTE"
+
+    val = validate_action_item(quote, {
+        "action": "Staff attendance",
+        "assignee": "Teachers",
+        "deadline": "NOT STATED",
+        "fee_or_docs": candidate_fee,
+        "source_quote": quote
+    })
+    assert val["validation_status"] == "FLAGGED_FOR_HUMAN_REVIEW"
+    assert val["field_evidence"]["fee_or_docs"]["status"] == "FEE_NOT_IN_SUPPORTING_QUOTE"
+    assert "Fee Mismatch" in val["validation_badge_text"]
+
+
+# 11. Required Documents Partial Word Match Check (P0 Regression: 'permission slips' vs 'Permission was discussed')
+def test_verify_required_docs_partial_word_missing_flagged():
+    """P0 Regression: Extracted requirement 'permission slips' must be flagged when quote only mentions 'Permission was discussed.'"""
+    quote = "Permission was discussed."
+    candidate_doc = "permission slips"
+
+    ok, reason = verify_fee_or_docs(quote, candidate_doc)
+    assert ok is False
+    assert reason == "DOCS_NOT_IN_SUPPORTING_QUOTE"
+
+    val = validate_action_item(quote, {
+        "action": "Review excursion policy",
+        "assignee": "NOT STATED",
+        "deadline": "NOT STATED",
+        "fee_or_docs": candidate_doc,
+        "source_quote": quote
+    })
+    assert val["validation_status"] == "FLAGGED_FOR_HUMAN_REVIEW"
+    assert val["field_evidence"]["fee_or_docs"]["status"] == "DOCS_NOT_IN_SUPPORTING_QUOTE"
+    assert "Document Mismatch" in val["validation_badge_text"]
+
+
+# 12. Assignee Clause Scoping Check (P1 Regression: Role from separate clause MUST be flagged)
+def test_verify_assignee_role_from_separate_clause_flagged():
+    """P1 Regression: Assignee 'Homeroom Teachers' assigned to Science Teachers' quote MUST be flagged as not in supporting quote."""
+    notice = (
+        "Clause 1: All Grade 10 Science Teachers must submit lab rosters by October 30.\n"
+        "Clause 2: Homeroom Teachers must collect attendance slips by November 02."
+    )
+    quote = "All Grade 10 Science Teachers must submit lab rosters by October 30."
+    candidate_assignee = "Homeroom Teachers"
+
+    val = validate_action_item(notice, {
+        "action": "Submit lab rosters",
+        "assignee": candidate_assignee,
+        "deadline": "October 30",
+        "source_quote": quote
+    })
+    assert val["validation_status"] == "FLAGGED_FOR_HUMAN_REVIEW"
+    assert val["field_evidence"]["assignee"]["status"] == "ROLE_NOT_IN_SUPPORTING_QUOTE"
+    assert val["field_evidence"]["assignee"]["is_grounded"] is False
+    assert "Role Mismatch" in val["validation_badge_text"]
 
 
 # ==============================================================================

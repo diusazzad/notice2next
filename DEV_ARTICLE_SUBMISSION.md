@@ -79,8 +79,8 @@ If the API key is not configured or remote calls encounter a timeout, Notice2Nex
 Before presenting any item, the Python validator performs independent checks across multiple evidence streams:
 1. **Strict Verbatim Substring Matching:** The candidate quote is checked as an exact verbatim substring of the normalized circular. If a candidate quote only matches after stripping punctuation (`PUNCTUATION_STRIPPED_WORD_MATCH`), it is **not** granted verified status; it is flagged for teacher review.
 2. **Semantic Date Component Parsing:** Date verification separates calendar day, month, and year from clock times. This completely eliminates substring collisions (e.g. distinguishing calendar day "3" from "30", or clock time "3:00 PM").
-3. **Fail-Closed Role Matching:** Partial role matches (e.g. model outputting "Grade 12 Science Teachers" when the notice specifies "Grade 10 Science Teachers") are flagged for human review (`ROLE_PARTIAL_MATCH`) rather than being falsely accepted.
-4. **Fee & Required Document Grounding:** Extracted monetary fees (e.g. "$15 per student") and documents are validated directly against supporting evidence. If a fee is invented without source evidence, it is rejected and flagged for review.
+3. **Quote-Scoped Assignee Grounding:** Roles are strictly validated against this specific action's supporting quote. A role mentioned in a separate clause (e.g. Homeroom Teachers mentioned in Clause 2) is flagged as ungrounded (`ROLE_NOT_IN_SUPPORTING_QUOTE`) if assigned to a Science task from Clause 1. Partial role mismatches (`ROLE_PARTIAL_MATCH`) fail closed for review.
+4. **Contextual Fee & Document Grounding:** Extracted monetary fees (e.g. "$15 per student") must have explicit monetary/fee context in the quote; bare numbers in unrelated sentences (such as "15 teachers") are rejected. Required documents undergo conservative evidence checking: any missing material document term triggers human review (`DOCS_NOT_IN_SUPPORTING_QUOTE`).
 5. **Semantic Distinction:** Verifying that a quote exists in the text does **not** guarantee that the generated action verb accurately represents the school's intent. Notice2Next explicitly marks the action field: `🔍 Action Intent (Teacher Review Needed)`.
 6. **Explicit `NOT STATED` Enforcement:** If an action lacks a deadline, the engine strictly outputs `deadline: "NOT STATED"` instead of hallucinating.
 7. **Historical Date Trap Protection:** Circulars frequently cite founding years (e.g. *"Since our school's founding in 1974..."*) or national holiday dates. The engine verifies that context dates are not misattributed as task deadlines.
@@ -102,37 +102,40 @@ To maintain transparency, Notice2Next includes an automated test suite evaluated
 ============================= test session starts =============================
 platform win32 -- Python 3.13.15, pytest-9.1.1
 rootdir: G:\Hactoborfest2026\week_3\notice2next
-collected 28 items
+collected 31 items
 
 tests/test_notice2next.py::test_case_1_complete_circular_strict PASSED   [  3%]
-tests/test_notice2next.py::test_case_2_omitted_deadline_strict PASSED    [  7%]
-tests/test_notice2next.py::test_case_3_informational_zero_tasks_strict PASSED [ 10%]
-tests/test_notice2next.py::test_case_4_unrelated_date_trap_strict PASSED [ 14%]
-tests/test_notice2next.py::test_case_5_multi_role_bangla_strict PASSED   [ 17%]
-tests/test_notice2next.py::test_case_6_contradictory_flagged_for_human_review_strict PASSED [ 21%]
-tests/test_notice2next.py::test_verify_source_quote_strict_verbatim PASSED [ 25%]
-tests/test_notice2next.py::test_verify_source_quote_punctuation_stripped_not_strict PASSED [ 28%]
-tests/test_notice2next.py::test_verify_source_quote_hallucination_rejected PASSED [ 32%]
-tests/test_notice2next.py::test_independent_field_evidence_generation PASSED [ 35%]
-tests/test_notice2next.py::test_verify_deadline_complete_matching_date_and_time PASSED [ 39%]
-tests/test_notice2next.py::test_verify_deadline_date_matching_but_time_incorrect_fails PASSED [ 42%]
-tests/test_notice2next.py::test_verify_deadline_unrelated_date_elsewhere_in_notice_fails PASSED [ 46%]
-tests/test_notice2next.py::test_verify_deadline_absent_from_supporting_quote_fails PASSED [ 50%]
-tests/test_notice2next.py::test_verify_deadline_contradictory_timing_fails PASSED [ 53%]
-tests/test_notice2next.py::test_verify_deadline_missed_explicit_date_in_quote_fails PASSED [ 57%]
-tests/test_notice2next.py::test_verify_deadline_date_number_ambiguity_oct_3_vs_30_rejected PASSED [ 60%]
-tests/test_notice2next.py::test_verify_assignee_partial_match_grade_12_vs_grade_10_flagged PASSED [ 64%]
-tests/test_notice2next.py::test_verify_fee_or_docs_hallucinated_fee_rejected PASSED [ 67%]
-tests/test_notice2next.py::test_extract_with_gemma_api_success_path PASSED [ 71%]
-tests/test_notice2next.py::test_extract_with_gemma_api_timeout_fallback PASSED [ 75%]
-tests/test_notice2next.py::test_extract_with_gemma_api_malformed_json_fallback PASSED [ 78%]
-tests/test_notice2next.py::test_csv_export_format PASSED                 [ 82%]
-tests/test_notice2next.py::test_api_benchmark_endpoint_strict_pass PASSED [ 85%]
-tests/test_notice2next.py::test_api_health_endpoint PASSED               [ 89%]
-tests/test_notice2next.py::test_api_samples_endpoint PASSED              [ 92%]
+tests/test_notice2next.py::test_case_2_omitted_deadline_strict PASSED    [  6%]
+tests/test_notice2next.py::test_case_3_informational_zero_tasks_strict PASSED [  9%]
+tests/test_notice2next.py::test_case_4_unrelated_date_trap_strict PASSED [ 12%]
+tests/test_notice2next.py::test_case_5_multi_role_bangla_strict PASSED   [ 16%]
+tests/test_notice2next.py::test_case_6_contradictory_flagged_for_human_review_strict PASSED [ 19%]
+tests/test_notice2next.py::test_verify_source_quote_strict_verbatim PASSED [ 22%]
+tests/test_notice2next.py::test_verify_source_quote_punctuation_stripped_not_strict PASSED [ 25%]
+tests/test_notice2next.py::test_verify_source_quote_hallucination_rejected PASSED [ 29%]
+tests/test_notice2next.py::test_independent_field_evidence_generation PASSED [ 32%]
+tests/test_notice2next.py::test_verify_deadline_complete_matching_date_and_time PASSED [ 35%]
+tests/test_notice2next.py::test_verify_deadline_date_matching_but_time_incorrect_fails PASSED [ 38%]
+tests/test_notice2next.py::test_verify_deadline_unrelated_date_elsewhere_in_notice_fails PASSED [ 41%]
+tests/test_notice2next.py::test_verify_deadline_absent_from_supporting_quote_fails PASSED [ 45%]
+tests/test_notice2next.py::test_verify_deadline_contradictory_timing_fails PASSED [ 48%]
+tests/test_notice2next.py::test_verify_deadline_missed_explicit_date_in_quote_fails PASSED [ 51%]
+tests/test_notice2next.py::test_verify_deadline_date_number_ambiguity_oct_3_vs_30_rejected PASSED [ 54%]
+tests/test_notice2next.py::test_verify_assignee_partial_match_grade_12_vs_grade_10_flagged PASSED [ 58%]
+tests/test_notice2next.py::test_verify_fee_or_docs_hallucinated_fee_rejected PASSED [ 61%]
+tests/test_notice2next.py::test_verify_fee_numeric_amount_without_monetary_context_rejected PASSED [ 64%]
+tests/test_notice2next.py::test_verify_required_docs_partial_word_missing_flagged PASSED [ 67%]
+tests/test_notice2next.py::test_verify_assignee_role_from_separate_clause_flagged PASSED [ 70%]
+tests/test_notice2next.py::test_extract_with_gemma_api_success_path PASSED [ 74%]
+tests/test_notice2next.py::test_extract_with_gemma_api_timeout_fallback PASSED [ 77%]
+tests/test_notice2next.py::test_extract_with_gemma_api_malformed_json_fallback PASSED [ 80%]
+tests/test_notice2next.py::test_csv_export_format PASSED                 [ 83%]
+tests/test_notice2next.py::test_api_benchmark_endpoint_strict_pass PASSED [ 87%]
+tests/test_notice2next.py::test_api_health_endpoint PASSED               [ 90%]
+tests/test_notice2next.py::test_api_samples_endpoint PASSED              [ 93%]
 tests/test_notice2next.py::test_api_extract_valid_notice PASSED          [ 96%]
 tests/test_notice2next.py::test_api_extract_empty_fails PASSED           [100%]
-============================= 28 passed in 0.65s ==============================
+============================= 31 passed in 0.68s ==============================
 ```
 
 ### Benchmark Regression Results:
