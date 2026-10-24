@@ -162,7 +162,7 @@ Notice2Next is deployed on **Render** via native Infrastructure-as-Code `render.
 * Public `/health` endpoint validating model configuration and container readiness.
 
 ### 2. Best Use of Gemma ($200)
-**Google Gemma 2** provides the core natural language understanding engine, transforming unstructured English and Bengali administrative circulars into structured JSON actions while preserving exact quotations for verification.
+**Google Gemma 2** (`google/gemma-2-9b-it`) powers the language extraction pipeline. It is architected for zero-downtime reliability: when configured with credentials, live Gemma inference parses unstructured circulars into structured JSON; when unconfigured, the system transparently reports that it is executing in deterministic offline fallback mode (`live_gemma_configured: false`), never faking or disguising model output.
 
 ---
 
