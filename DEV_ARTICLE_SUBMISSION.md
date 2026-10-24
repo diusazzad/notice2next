@@ -98,31 +98,34 @@ To maintain transparency, Notice2Next includes an automated test suite evaluated
 ============================= test session starts =============================
 platform win32 -- Python 3.13.15, pytest-9.1.1
 rootdir: G:\Hactoborfest2026\week_3\notice2next
-collected 22 items
+collected 25 items
 
 tests/test_notice2next.py::test_case_1_complete_circular_strict PASSED   [  4%]
-tests/test_notice2next.py::test_case_2_omitted_deadline_strict PASSED    [  9%]
-tests/test_notice2next.py::test_case_3_informational_zero_tasks_strict PASSED [ 13%]
-tests/test_notice2next.py::test_case_4_unrelated_date_trap_strict PASSED [ 18%]
-tests/test_notice2next.py::test_case_5_multi_role_bangla_strict PASSED   [ 22%]
-tests/test_notice2next.py::test_case_6_contradictory_flagged_for_human_review_strict PASSED [ 27%]
-tests/test_notice2next.py::test_verify_source_quote_strict_verbatim PASSED [ 31%]
-tests/test_notice2next.py::test_verify_source_quote_punctuation_stripped_not_strict PASSED [ 36%]
-tests/test_notice2next.py::test_verify_source_quote_hallucination_rejected PASSED [ 40%]
-tests/test_notice2next.py::test_independent_field_evidence_generation PASSED [ 45%]
-tests/test_notice2next.py::test_verify_deadline_grounded_in_quote_passes PASSED [ 50%]
-tests/test_notice2next.py::test_verify_deadline_not_in_quote_flagged PASSED [ 54%]
-tests/test_notice2next.py::test_verify_deadline_contradictory_notice_flagged PASSED [ 59%]
-tests/test_notice2next.py::test_extract_with_gemma_api_success_path PASSED [ 63%]
-tests/test_notice2next.py::test_extract_with_gemma_api_timeout_fallback PASSED [ 68%]
-tests/test_notice2next.py::test_extract_with_gemma_api_malformed_json_fallback PASSED [ 72%]
-tests/test_notice2next.py::test_csv_export_format PASSED                 [ 77%]
-tests/test_notice2next.py::test_api_benchmark_endpoint_strict_pass PASSED [ 81%]
-tests/test_notice2next.py::test_api_health_endpoint PASSED               [ 86%]
-tests/test_notice2next.py::test_api_samples_endpoint PASSED              [ 90%]
-tests/test_notice2next.py::test_api_extract_valid_notice PASSED          [ 95%]
+tests/test_notice2next.py::test_case_2_omitted_deadline_strict PASSED    [  8%]
+tests/test_notice2next.py::test_case_3_informational_zero_tasks_strict PASSED [ 12%]
+tests/test_notice2next.py::test_case_4_unrelated_date_trap_strict PASSED [ 16%]
+tests/test_notice2next.py::test_case_5_multi_role_bangla_strict PASSED   [ 20%]
+tests/test_notice2next.py::test_case_6_contradictory_flagged_for_human_review_strict PASSED [ 24%]
+tests/test_notice2next.py::test_verify_source_quote_strict_verbatim PASSED [ 28%]
+tests/test_notice2next.py::test_verify_source_quote_punctuation_stripped_not_strict PASSED [ 32%]
+tests/test_notice2next.py::test_verify_source_quote_hallucination_rejected PASSED [ 36%]
+tests/test_notice2next.py::test_independent_field_evidence_generation PASSED [ 40%]
+tests/test_notice2next.py::test_verify_deadline_complete_matching_date_and_time PASSED [ 44%]
+tests/test_notice2next.py::test_verify_deadline_date_matching_but_time_incorrect_fails PASSED [ 48%]
+tests/test_notice2next.py::test_verify_deadline_unrelated_date_elsewhere_in_notice_fails PASSED [ 52%]
+tests/test_notice2next.py::test_verify_deadline_absent_from_supporting_quote_fails PASSED [ 56%]
+tests/test_notice2next.py::test_verify_deadline_contradictory_timing_fails PASSED [ 60%]
+tests/test_notice2next.py::test_verify_deadline_missed_explicit_date_in_quote_fails PASSED [ 64%]
+tests/test_notice2next.py::test_extract_with_gemma_api_success_path PASSED [ 68%]
+tests/test_notice2next.py::test_extract_with_gemma_api_timeout_fallback PASSED [ 72%]
+tests/test_notice2next.py::test_extract_with_gemma_api_malformed_json_fallback PASSED [ 76%]
+tests/test_notice2next.py::test_csv_export_format PASSED                 [ 80%]
+tests/test_notice2next.py::test_api_benchmark_endpoint_strict_pass PASSED [ 84%]
+tests/test_notice2next.py::test_api_health_endpoint PASSED               [ 88%]
+tests/test_notice2next.py::test_api_samples_endpoint PASSED              [ 92%]
+tests/test_notice2next.py::test_api_extract_valid_notice PASSED          [ 96%]
 tests/test_notice2next.py::test_api_extract_empty_fails PASSED           [100%]
-============================= 22 passed in 0.60s ==============================
+============================= 25 passed in 0.56s ==============================
 ```
 
 ### Benchmark Regression Results:

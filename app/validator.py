@@ -13,7 +13,7 @@ Core Principles:
 
 import re
 import unicodedata
-from typing import Dict, Any, List, Tuple
+from typing import Dict, Any, List, Tuple, Set
 
 
 def normalize_whitespace(text: str) -> str:
@@ -63,11 +63,73 @@ def verify_source_quote(notice_text: str, candidate_quote: str) -> Tuple[bool, s
     return False, "UNVERIFIED_OR_HALLUCINATED", 0.0
 
 
+def extract_normalized_times(text: str) -> List[str]:
+    """Extracts and normalizes clock times (e.g. '4:00 PM' -> '4:00pm', '12:00 PM' -> '12:00pm', 'দুপুর ২:০০' -> '২:০০')."""
+    if not text:
+        return []
+    lower = text.lower()
+    times = []
+    
+    # 1. 12-hour AM/PM times: e.g. 4:00 pm, 4:00pm, 4 pm, 12:00 pm
+    ampm_matches = re.finditer(r"\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b", lower)
+    for m in ampm_matches:
+        hr = int(m.group(1))
+        mn = m.group(2) if m.group(2) else "00"
+        period = m.group(3)
+        times.append(f"{hr}:{mn}{period}")
+        
+    # 2. 24-hour / colon times: e.g. 14:00, 16:30
+    colon_matches = re.finditer(r"\b(\d{1,2}):(\d{2})\b", lower)
+    for m in colon_matches:
+        hr = int(m.group(1))
+        mn = m.group(2)
+        times.append(f"{hr}:{mn}")
+
+    # 3. Bangla clock times: e.g. ২:০০ ঘটিকা
+    bn_matches = re.finditer(r"([০-৯]{1,2}:[০-৯]{2})", lower)
+    for m in bn_matches:
+        times.append(m.group(1))
+
+    return times
+
+
+def extract_date_entities(text: str) -> Dict[str, Set[str]]:
+    """Extracts date numbers, months, and weekdays for strict verification."""
+    lower = text.lower()
+    
+    en_months = {
+        "january", "february", "march", "april", "may", "june",
+        "july", "august", "september", "october", "november", "december",
+        "jan", "feb", "mar", "apr", "jun", "jul", "aug", "sep", "oct", "nov", "dec"
+    }
+    bn_months = {
+        "জানুয়ারি", "ফেব্রুয়ারি", "মার্চ", "এপ্রিল", "মে", "জুন",
+        "জুলাই", "আগস্ট", "সেপ্টেম্বর", "অক্টোবর", "নভেম্বর", "ডিসেম্বর"
+    }
+    weekdays = {
+        "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
+        "রবিবার", "সোমবার", "মঙ্গলবার", "বুধবার", "বৃহস্পতিবার", "শুক্রবার", "শনিবার"
+    }
+
+    found_months = {m for m in (en_months | bn_months) if m in lower}
+    found_weekdays = {w for w in weekdays if w in lower}
+    
+    en_nums = set(re.findall(r"\b\d{1,4}\b", lower))
+    bn_nums = set(re.findall(r"[০-৯]{1,4}", lower))
+    found_nums = en_nums | bn_nums
+    
+    return {
+        "months": found_months,
+        "weekdays": found_weekdays,
+        "numbers": found_nums
+    }
+
+
 def verify_deadline(notice_text: str, quote: str, stated_deadline: str) -> Tuple[bool, str]:
     """
-    Validates that a stated deadline is grounded in the RELEVANT supporting quote.
-    A deadline cannot merely appear somewhere else in the document; it must be supported
-    by the specific action clause/quote.
+    Validates that a stated deadline is strictly grounded in the RELEVANT supporting quote.
+    No token ratio guessing. Date and clock time components must match the quote.
+    Fails closed when dates/times are missing or mismatched.
     
     Returns: (is_grounded, category)
     """
@@ -83,21 +145,17 @@ def verify_deadline(notice_text: str, quote: str, stated_deadline: str) -> Tuple
     norm_notice = normalize_whitespace(notice_text).lower()
     norm_quote = normalize_whitespace(quote).lower() if quote else ""
 
-    # Contradiction & Ambiguity Check: Flag if circular has conflicting timing
+    # 1. Contradiction & Ambiguity Check: Flag if circular has conflicting timing
     if detect_contradictions(norm_quote) or detect_contradictions(norm_notice):
         return False, "CONTRADICTORY_TIMING_REQUIRES_REVIEW"
 
-    clean_dl = re.sub(r"[^\w\s]", "", stated_deadline.lower()).strip()
-    clean_quote = re.sub(r"[^\w\s]", "", norm_quote)
-    clean_notice = re.sub(r"[^\w\s]", "", norm_notice)
-
+    # 2. Handling NOT STATED: Fail if quote contains an explicit deadline trigger
     if is_not_stated:
-        # Check if the supporting quote itself has an obvious deadline trigger that was missed
         deadline_patterns = [
             r"\bby\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)",
             r"\bbefore\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)",
             r"\bby\s+[a-z]+\s+\d{1,2}",
-            r"\bআগামী\s+\d{1,2}\s+(?:জানুয়ারি|ফেব্রুয়ারি|মার্চ|এপ্রিল|মে|জুন|জুলাই|আগস্ট|সেপ্টেম্বর|অক্টোবর|নভেম্বর|ডিসেম্বর)",
+            r"\bআগামী\s+[০-৯0-9]{1,2}\s+(?:জানুয়ারি|ফেব্রুয়ারি|মার্চ|এপ্রিল|মে|জুন|জুলাই|আগস্ট|সেপ্টেম্বর|অক্টোবর|নভেম্বর|ডিসেম্বর)",
             r"\bতারিখের\s+মধ্যে\b"
         ]
         for pat in deadline_patterns:
@@ -105,11 +163,11 @@ def verify_deadline(notice_text: str, quote: str, stated_deadline: str) -> Tuple
                 return False, "MISSED_DEADLINE_IN_QUOTE"
         return True, "CORRECTLY_MARKED_NOT_STATED"
 
-    dl_tokens = clean_dl.split()
-    if not dl_tokens:
+    clean_dl = re.sub(r"[^\w\s]", "", stated_deadline.lower()).strip()
+    if not clean_dl:
         return False, "EMPTY_DEADLINE_TOKENS"
 
-    # 1. Historical Date Trap Check: If deadline matches founding or anniversary dates
+    # 3. Historical Date Trap Check: If deadline matches founding or anniversary dates
     founding_indicators = ["founding", "founded", "established", "independence", "historic", "golden jubilee"]
     for ind in founding_indicators:
         if ind in norm_notice:
@@ -117,22 +175,57 @@ def verify_deadline(notice_text: str, quote: str, stated_deadline: str) -> Tuple
             if re.search(pat, norm_notice, re.IGNORECASE):
                 return False, "UNRELATED_HISTORICAL_DATE_TRAP"
 
-    # 2. STRICT SUPPORTING QUOTE GROUNDING: Verify deadline tokens appear IN THIS ACTION'S QUOTE
-    quote_tokens_found = [tok for tok in dl_tokens if tok in clean_quote]
-    quote_token_ratio = len(quote_tokens_found) / len(dl_tokens)
+    # 4. Strict Clock Time Verification:
+    # If the model specified a time, that exact time MUST exist in the supporting quote
+    dl_times = extract_normalized_times(stated_deadline)
+    quote_times = extract_normalized_times(norm_quote)
+    if dl_times:
+        for t in dl_times:
+            if t not in quote_times:
+                return False, "DEADLINE_TIME_MISMATCH_IN_QUOTE"
 
-    if quote_token_ratio >= 0.5:
-        return True, "DEADLINE_GROUNDED_IN_QUOTE"
+    # 5. Strict Date Entities Verification (Month, Weekday, Numbers)
+    dl_entities = extract_date_entities(stated_deadline)
+    quote_entities = extract_date_entities(norm_quote)
+    notice_entities = extract_date_entities(norm_notice)
 
-    # 3. Check if deadline exists in the notice overall, but NOT in this supporting quote
-    notice_tokens_found = [tok for tok in dl_tokens if tok in clean_notice]
-    notice_token_ratio = len(notice_tokens_found) / len(dl_tokens)
+    # Any month stated must be in the quote
+    for m in dl_entities["months"]:
+        if m not in quote_entities["months"]:
+            if m in notice_entities["months"]:
+                return False, "DEADLINE_NOT_IN_SUPPORTING_QUOTE"
+            return False, "HALLUCINATED_DEADLINE_NOT_IN_CIRCULAR"
 
-    if notice_token_ratio >= 0.5:
-        return False, "DEADLINE_NOT_IN_SUPPORTING_QUOTE"
+    # Any weekday stated must be in the quote
+    for w in dl_entities["weekdays"]:
+        if w not in quote_entities["weekdays"]:
+            if w in notice_entities["weekdays"]:
+                return False, "DEADLINE_NOT_IN_SUPPORTING_QUOTE"
+            return False, "HALLUCINATED_DEADLINE_NOT_IN_CIRCULAR"
 
-    # 4. Hallucinated deadline (not in circular at all)
-    return False, "HALLUCINATED_DEADLINE_NOT_IN_CIRCULAR"
+    # Any calendar numbers (excluding hour numbers already matched in dl_times)
+    for num in dl_entities["numbers"]:
+        if any(num in t for t in dl_times):
+            continue
+        if num not in quote_entities["numbers"]:
+            if num in notice_entities["numbers"]:
+                return False, "DEADLINE_NOT_IN_SUPPORTING_QUOTE"
+            return False, "HALLUCINATED_DEADLINE_NOT_IN_CIRCULAR"
+
+    # 6. Overall Content Word Grounding: Fail closed if meaningful words are missing from quote
+    stop_words = {"at", "by", "before", "on", "sharp", "sharp.", "the", "of", "and", "to", "in", "দুপুর", "সকাল", "তারিখের", "মধ্যে"}
+    dl_words = [w for w in clean_dl.split() if w not in stop_words]
+    clean_quote = re.sub(r"[^\w\s]", "", norm_quote)
+    missing_words = [w for w in dl_words if w not in clean_quote]
+
+    if missing_words:
+        clean_notice = re.sub(r"[^\w\s]", "", norm_notice)
+        in_notice = [w for w in missing_words if w in clean_notice]
+        if in_notice:
+            return False, "DEADLINE_NOT_IN_SUPPORTING_QUOTE"
+        return False, "HALLUCINATED_DEADLINE_NOT_IN_CIRCULAR"
+
+    return True, "DEADLINE_GROUNDED_IN_QUOTE"
 
 
 def detect_contradictions(text_segment: str) -> bool:
@@ -268,7 +361,10 @@ def validate_action_item(notice_text: str, item: Dict[str, Any]) -> Dict[str, An
     elif not deadline_ok:
         status = "FLAGGED_FOR_HUMAN_REVIEW"
         badge = "warning"
-        if deadline_category == "DEADLINE_NOT_IN_SUPPORTING_QUOTE":
+        if deadline_category == "DEADLINE_TIME_MISMATCH_IN_QUOTE":
+            badge_text = "⚠️ Time Mismatch (Not in Quote)"
+            notes = "The extracted time does not match the time specified in this action's evidence quote."
+        elif deadline_category == "DEADLINE_NOT_IN_SUPPORTING_QUOTE":
             badge_text = "⚠️ Date Mismatch (Not in Quote)"
             notes = "The extracted date appears elsewhere in the circular, but is NOT supported by this action's evidence quote."
         elif deadline_category == "UNRELATED_HISTORICAL_DATE_TRAP":

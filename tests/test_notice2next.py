@@ -201,30 +201,82 @@ def test_independent_field_evidence_generation():
     assert val["field_evidence"]["deadline"]["status"] == "DEADLINE_GROUNDED_IN_QUOTE"
 
 
-def test_verify_deadline_grounded_in_quote_passes():
-    """Deadline present in the relevant supporting quote is verified."""
-    notice = "Notice: Science teachers must submit proposals by October 29, 2026."
-    quote = "Science teachers must submit proposals by October 29, 2026."
-    ok, reason = verify_deadline(notice, quote, "October 29, 2026")
+# 1. Completely matching date and time
+def test_verify_deadline_complete_matching_date_and_time():
+    """1. Completely matching date and time: must be strictly verified as grounded in quote."""
+    notice = "Notice: Science teachers must submit proposals by Thursday, October 29, 2026 at 4:00 PM."
+    quote = "Science teachers must submit proposals by Thursday, October 29, 2026 at 4:00 PM."
+    ok, reason = verify_deadline(notice, quote, "Thursday, October 29, 2026 at 4:00 PM")
     assert ok is True
     assert reason == "DEADLINE_GROUNDED_IN_QUOTE"
 
+    val = validate_action_item(notice, {
+        "action": "Submit proposals",
+        "assignee": "Science teachers",
+        "deadline": "Thursday, October 29, 2026 at 4:00 PM",
+        "source_quote": quote
+    })
+    assert val["validation_status"] == "VERIFIED_QUOTE_GROUNDED"
+    assert "Verbatim Quote Found" in val["validation_badge_text"]
 
-def test_verify_deadline_not_in_quote_flagged():
-    """Deadline that exists elsewhere in notice but NOT in this action's quote is flagged."""
+
+# 2. Only a date matching, but time incorrect
+def test_verify_deadline_date_matching_but_time_incorrect_fails():
+    """2. Date matches but time is wrong/hallucinated: MUST fail closed (no 50% token pass)."""
+    notice = "Notice: Science teachers must submit proposals by Thursday, October 29, 2026 at 4:00 PM."
+    quote = "Science teachers must submit proposals by Thursday, October 29, 2026 at 4:00 PM."
+    # Model hallucinates 9:00 PM instead of 4:00 PM
+    ok, reason = verify_deadline(notice, quote, "Thursday, October 29, 2026 at 9:00 PM")
+    assert ok is False
+    assert reason == "DEADLINE_TIME_MISMATCH_IN_QUOTE"
+
+    val = validate_action_item(notice, {
+        "action": "Submit proposals",
+        "assignee": "Science teachers",
+        "deadline": "Thursday, October 29, 2026 at 9:00 PM",
+        "source_quote": quote
+    })
+    assert val["validation_status"] == "FLAGGED_FOR_HUMAN_REVIEW"
+    assert "Time Mismatch" in val["validation_badge_text"]
+
+
+# 3. An unrelated date elsewhere in the notice
+def test_verify_deadline_unrelated_date_elsewhere_in_notice_fails():
+    """3. Unrelated historical date from elsewhere in notice: MUST fail with trap or ungrounded."""
     notice = (
-        "Paragraph 1: Sports day fee due December 15.\n"
-        "Paragraph 2: Homeroom teachers must check attendance sheets."
+        "Since our school's historic founding on September 15, 1974, excellence has been our mission. "
+        "Senior Department Subject Heads are required to submit articles by Tuesday, November 10, 2026 at 3:00 PM."
     )
-    quote = "Homeroom teachers must check attendance sheets."
-    # Model mistakenly grabs December 15 from paragraph 1
+    quote = "Senior Department Subject Heads are required to submit articles by Tuesday, November 10, 2026 at 3:00 PM."
+    # Model traps on founding date
+    ok, reason = verify_deadline(notice, quote, "September 15, 1974")
+    assert ok is False
+    assert reason in ["UNRELATED_HISTORICAL_DATE_TRAP", "DEADLINE_NOT_IN_SUPPORTING_QUOTE"]
+
+    val = validate_action_item(notice, {
+        "action": "Submit articles",
+        "assignee": "Subject Heads",
+        "deadline": "September 15, 1974",
+        "source_quote": quote
+    })
+    assert val["validation_status"] == "FLAGGED_FOR_HUMAN_REVIEW"
+
+
+# 4. A deadline absent from the supporting quote
+def test_verify_deadline_absent_from_supporting_quote_fails():
+    """4. Deadline exists in circular paragraph 1, but is absent from this action's quote in paragraph 2."""
+    notice = (
+        "Paragraph 1: Annual sports day fee is due December 15.\n"
+        "Paragraph 2: Homeroom teachers must check and update student attendance ledgers."
+    )
+    quote = "Homeroom teachers must check and update student attendance ledgers."
+    # Model grabs December 15 from paragraph 1
     ok, reason = verify_deadline(notice, quote, "December 15")
     assert ok is False
     assert reason == "DEADLINE_NOT_IN_SUPPORTING_QUOTE"
 
-    # In validate_action_item, this MUST trigger FLAGGED_FOR_HUMAN_REVIEW
     val = validate_action_item(notice, {
-        "action": "Check attendance sheets",
+        "action": "Check and update student attendance ledgers",
         "assignee": "Homeroom teachers",
         "deadline": "December 15",
         "source_quote": quote
@@ -233,25 +285,47 @@ def test_verify_deadline_not_in_quote_flagged():
     assert "Date Mismatch" in val["validation_badge_text"]
 
 
-def test_verify_deadline_contradictory_notice_flagged():
-    """Notice with conflicting/contradictory timing is flagged rather than accepting NOT STATED."""
+# 5. Contradictory timing
+def test_verify_deadline_contradictory_timing_fails():
+    """5. Contradictory timing (10:00 AM vs 5:00 PM with contrast): MUST be flagged for review."""
     notice = (
-        "Slips must be turned in by 10:00 AM, however no slips accepted before 5:00 PM due to repairs. "
+        "Uniform inspection slips should be turned in by 10:00 AM tomorrow morning, "
+        "however no slips will be accepted before 5:00 PM due to system maintenance. "
         "Details subject to revision without notice."
     )
-    quote = "Slips must be turned in by 10:00 AM, however no slips accepted before 5:00 PM due to repairs."
-    ok, reason = verify_deadline(notice, quote, "NOT STATED")
+    quote = "Uniform inspection slips should be turned in by 10:00 AM tomorrow morning, however no slips will be accepted before 5:00 PM."
+    ok, reason = verify_deadline(notice, quote, "10:00 AM")
     assert ok is False
     assert reason == "CONTRADICTORY_TIMING_REQUIRES_REVIEW"
 
     val = validate_action_item(notice, {
-        "action": "Turn in slips",
+        "action": "Turn in inspection slips",
+        "assignee": "Staff",
+        "deadline": "10:00 AM",
+        "source_quote": quote
+    })
+    assert val["validation_status"] == "FLAGGED_FOR_HUMAN_REVIEW"
+    assert "Contradiction Detected" in val["validation_badge_text"]
+
+
+# 6. Missing deadline incorrectly reported as NOT STATED when the quote contains an explicit deadline
+def test_verify_deadline_missed_explicit_date_in_quote_fails():
+    """6. Model reports NOT STATED when quote explicitly contains 'by Monday, November 02, 2026 before 12:00 PM'."""
+    notice = "Notice: All fees must be deposited by Monday, November 02, 2026 before 12:00 PM."
+    quote = "All fees must be deposited by Monday, November 02, 2026 before 12:00 PM."
+    # Model incorrectly reports NOT STATED
+    ok, reason = verify_deadline(notice, quote, "NOT STATED")
+    assert ok is False
+    assert reason == "MISSED_DEADLINE_IN_QUOTE"
+
+    val = validate_action_item(notice, {
+        "action": "Deposit fees",
         "assignee": "Staff",
         "deadline": "NOT STATED",
         "source_quote": quote
     })
     assert val["validation_status"] == "FLAGGED_FOR_HUMAN_REVIEW"
-    assert "Contradiction Detected" in val["validation_badge_text"]
+    assert "Date Missed in Quote" in val["validation_badge_text"]
 
 
 # ==============================================================================
