@@ -65,7 +65,10 @@ def verify_source_quote(notice_text: str, candidate_quote: str) -> Tuple[bool, s
 
 def verify_deadline(notice_text: str, quote: str, stated_deadline: str) -> Tuple[bool, str]:
     """
-    Validates deadline grounding against circular text and quote.
+    Validates that a stated deadline is grounded in the RELEVANT supporting quote.
+    A deadline cannot merely appear somewhere else in the document; it must be supported
+    by the specific action clause/quote.
+    
     Returns: (is_grounded, category)
     """
     if not stated_deadline:
@@ -80,11 +83,20 @@ def verify_deadline(notice_text: str, quote: str, stated_deadline: str) -> Tuple
     norm_notice = normalize_whitespace(notice_text).lower()
     norm_quote = normalize_whitespace(quote).lower() if quote else ""
 
+    # Contradiction & Ambiguity Check: Flag if circular has conflicting timing
+    if detect_contradictions(norm_quote) or detect_contradictions(norm_notice):
+        return False, "CONTRADICTORY_TIMING_REQUIRES_REVIEW"
+
+    clean_dl = re.sub(r"[^\w\s]", "", stated_deadline.lower()).strip()
+    clean_quote = re.sub(r"[^\w\s]", "", norm_quote)
+    clean_notice = re.sub(r"[^\w\s]", "", norm_notice)
+
     if is_not_stated:
         # Check if the supporting quote itself has an obvious deadline trigger that was missed
         deadline_patterns = [
             r"\bby\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)",
             r"\bbefore\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)",
+            r"\bby\s+[a-z]+\s+\d{1,2}",
             r"\bআগামী\s+\d{1,2}\s+(?:জানুয়ারি|ফেব্রুয়ারি|মার্চ|এপ্রিল|মে|জুন|জুলাই|আগস্ট|সেপ্টেম্বর|অক্টোবর|নভেম্বর|ডিসেম্বর)",
             r"\bতারিখের\s+মধ্যে\b"
         ]
@@ -93,40 +105,68 @@ def verify_deadline(notice_text: str, quote: str, stated_deadline: str) -> Tuple
                 return False, "MISSED_DEADLINE_IN_QUOTE"
         return True, "CORRECTLY_MARKED_NOT_STATED"
 
-    # Deadline was stated by model: verify it actually appears in circular
-    clean_dl = re.sub(r"[^\w\s]", "", stated_deadline.lower()).strip()
-    clean_notice = re.sub(r"[^\w\s]", "", norm_notice)
-
     dl_tokens = clean_dl.split()
     if not dl_tokens:
         return False, "EMPTY_DEADLINE_TOKENS"
 
-    # At least core date/time tokens must exist in notice
-    found_tokens = [tok for tok in dl_tokens if tok in clean_notice]
-    token_ratio = len(found_tokens) / len(dl_tokens)
-
-    if token_ratio < 0.5:
-        return False, "HALLUCINATED_DEADLINE_NOT_IN_CIRCULAR"
-
-    # Check if this deadline belongs to an unrelated context (e.g., founding year 1974)
-    founding_indicators = ["founding", "founded", "established", "independence", "historic"]
+    # 1. Historical Date Trap Check: If deadline matches founding or anniversary dates
+    founding_indicators = ["founding", "founded", "established", "independence", "historic", "golden jubilee"]
     for ind in founding_indicators:
         if ind in norm_notice:
             pat = rf"{ind}[^.]*?{re.escape(clean_dl)}"
             if re.search(pat, norm_notice, re.IGNORECASE):
                 return False, "UNRELATED_HISTORICAL_DATE_TRAP"
 
-    return True, "DEADLINE_GROUNDED"
+    # 2. STRICT SUPPORTING QUOTE GROUNDING: Verify deadline tokens appear IN THIS ACTION'S QUOTE
+    quote_tokens_found = [tok for tok in dl_tokens if tok in clean_quote]
+    quote_token_ratio = len(quote_tokens_found) / len(dl_tokens)
+
+    if quote_token_ratio >= 0.5:
+        return True, "DEADLINE_GROUNDED_IN_QUOTE"
+
+    # 3. Check if deadline exists in the notice overall, but NOT in this supporting quote
+    notice_tokens_found = [tok for tok in dl_tokens if tok in clean_notice]
+    notice_token_ratio = len(notice_tokens_found) / len(dl_tokens)
+
+    if notice_token_ratio >= 0.5:
+        return False, "DEADLINE_NOT_IN_SUPPORTING_QUOTE"
+
+    # 4. Hallucinated deadline (not in circular at all)
+    return False, "HALLUCINATED_DEADLINE_NOT_IN_CIRCULAR"
 
 
 def detect_contradictions(text_segment: str) -> bool:
-    """Detects mutually contradictory timing patterns within a clause."""
+    """Detects mutually contradictory or conflicting timing patterns within a text segment."""
+    if not text_segment:
+        return False
     lower = text_segment.lower()
-    # Check for contrasting time windows: e.g. "by 10:00 am ... however no ... before 5:00 pm"
-    has_am = bool(re.search(r"10:00\s*am", lower))
-    has_pm = bool(re.search(r"5:00\s*pm", lower))
-    has_contrast = any(c in lower for c in ["however", "contrary", "instead", "revision without notice"])
-    return has_am and has_pm and has_contrast
+    
+    # 1. Direct contradiction / revision markers
+    direct_markers = [
+        "revision without notice",
+        "subject to change without notice",
+        "subject to revision",
+        "conflicting deadline",
+        "conflicting schedule"
+    ]
+    if any(m in lower for m in direct_markers):
+        return True
+
+    # 2. Contrasting conjunctions alongside distinct time mentions
+    contrast_markers = ["however", "contrary", "instead", "tentative", "alternatively"]
+    has_contrast = any(c in lower for c in contrast_markers)
+
+    # Distinct clock times: e.g. "10:00 am" vs "5:00 pm"
+    time_matches = set(re.findall(r"\b\d{1,2}(?::\d{2})?\s*(?:am|pm)\b", lower))
+    if len(time_matches) >= 2 and has_contrast:
+        return True
+
+    # Distinct calendar dates with contrast
+    date_matches = set(re.findall(r"\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+\d{1,2}\b", lower))
+    if len(date_matches) >= 2 and has_contrast:
+        return True
+
+    return False
 
 
 def validate_action_item(notice_text: str, item: Dict[str, Any]) -> Dict[str, Any]:
@@ -171,7 +211,12 @@ def validate_action_item(notice_text: str, item: Dict[str, Any]) -> Dict[str, An
             assignee_grounded = False
 
     # 4. Check Contradictions
-    is_contradictory = detect_contradictions(source_quote) or detect_contradictions(action_text)
+    is_contradictory = (
+        detect_contradictions(source_quote) or
+        detect_contradictions(action_text) or
+        detect_contradictions(notice_text) or
+        deadline_category == "CONTRADICTORY_TIMING_REQUIRES_REVIEW"
+    )
 
     # 5. Build Independent Evidence Dict
     field_evidence = {
@@ -223,8 +268,18 @@ def validate_action_item(notice_text: str, item: Dict[str, Any]) -> Dict[str, An
     elif not deadline_ok:
         status = "FLAGGED_FOR_HUMAN_REVIEW"
         badge = "warning"
-        badge_text = "⚠️ Deadline Warning"
-        notes = f"Deadline verification issue: {deadline_category}."
+        if deadline_category == "DEADLINE_NOT_IN_SUPPORTING_QUOTE":
+            badge_text = "⚠️ Date Mismatch (Not in Quote)"
+            notes = "The extracted date appears elsewhere in the circular, but is NOT supported by this action's evidence quote."
+        elif deadline_category == "UNRELATED_HISTORICAL_DATE_TRAP":
+            badge_text = "⚠️ Historical Date Trap"
+            notes = "The extracted deadline matched a historical founding or anniversary date."
+        elif deadline_category == "MISSED_DEADLINE_IN_QUOTE":
+            badge_text = "⚠️ Date Missed in Quote"
+            notes = "The supporting quote contains an explicit date trigger, but deadline was marked NOT STATED."
+        else:
+            badge_text = "⚠️ Deadline Warning"
+            notes = f"Deadline verification issue: {deadline_category}."
     elif not assignee_grounded:
         status = "FLAGGED_FOR_HUMAN_REVIEW"
         badge = "warning"

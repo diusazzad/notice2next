@@ -7,7 +7,7 @@
 [![Model](https://img.shields.io/badge/Model-Google%20Gemma%202-8e44ad)](https://ai.google.dev/gemma)
 [![Python](https://img.shields.io/badge/Python-3.11%20%7C%203.13-3776ab?logo=python&logoColor=white)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Tests: 19 Passed](https://img.shields.io/badge/Tests-19%20Passed%20(100%25)-success)](tests/test_notice2next.py)
+[![Tests: 22 Passed](https://img.shields.io/badge/Tests-22%20Passed%20(100%25)-success)](tests/test_notice2next.py)
 
 ---
 
@@ -81,9 +81,9 @@ To maintain transparency, Notice2Next includes an automated evaluation benchmark
 | **Case 5** | Multi-Role Bangla Circular (শ্রেণি শিক্ষক ও আইসিটি) | Bangla | 2 | 2 | **100% Verbatim** | ✓ Distinct duties & deadlines extracted for homeroom vs lab staff. |
 | **Case 6** | Contradictory & Malformed Staff Note | English | 1 | 1 | **Flagged Review** | ✓ Correctly flagged contradictory timing (10 AM vs 5 PM) for human educator review. |
 
-**Regression Suite Result:** **100% Pass Rate (6/6 Scenarios Passed, 19/19 Automated Unit & Integration Tests Passed in 0.58s)**.
+**Regression Suite Result:** **100% Pass Rate (6/6 Scenarios Passed, 22/22 Automated Unit & Integration Tests Passed in 0.60s)**.
 
-*Disclaimer: This benchmark measures pipeline consistency across 6 synthetic test scenarios. It demonstrates boundary enforcement but does not claim universal accuracy across all school systems.*
+*Disclaimer: This benchmark measures pipeline consistency across 6 synthetic test scenarios as a deterministic regression test, not a live Gemma accuracy evaluation. It demonstrates boundary enforcement but does not claim universal accuracy across all school systems.*
 
 ---
 

@@ -98,28 +98,31 @@ To maintain transparency, Notice2Next includes an automated test suite evaluated
 ============================= test session starts =============================
 platform win32 -- Python 3.13.15, pytest-9.1.1
 rootdir: G:\Hactoborfest2026\week_3\notice2next
-collected 19 items
+collected 22 items
 
-tests/test_notice2next.py::test_case_1_complete_circular_strict PASSED   [  5%]
-tests/test_notice2next.py::test_case_2_omitted_deadline_strict PASSED    [ 10%]
-tests/test_notice2next.py::test_case_3_informational_zero_tasks_strict PASSED [ 15%]
-tests/test_notice2next.py::test_case_4_unrelated_date_trap_strict PASSED [ 21%]
-tests/test_notice2next.py::test_case_5_multi_role_bangla_strict PASSED   [ 26%]
-tests/test_notice2next.py::test_case_6_contradictory_flagged_for_human_review_strict PASSED [ 31%]
-tests/test_notice2next.py::test_verify_source_quote_strict_verbatim PASSED [ 36%]
-tests/test_notice2next.py::test_verify_source_quote_punctuation_stripped_not_strict PASSED [ 42%]
-tests/test_notice2next.py::test_verify_source_quote_hallucination_rejected PASSED [ 47%]
-tests/test_notice2next.py::test_independent_field_evidence_generation PASSED [ 52%]
-tests/test_notice2next.py::test_extract_with_gemma_api_success_path PASSED [ 57%]
-tests/test_notice2next.py::test_extract_with_gemma_api_timeout_fallback PASSED [ 63%]
-tests/test_notice2next.py::test_extract_with_gemma_api_malformed_json_fallback PASSED [ 68%]
-tests/test_notice2next.py::test_csv_export_format PASSED                 [ 73%]
-tests/test_notice2next.py::test_api_benchmark_endpoint_strict_pass PASSED [ 78%]
-tests/test_notice2next.py::test_api_health_endpoint PASSED               [ 84%]
-tests/test_notice2next.py::test_api_samples_endpoint PASSED              [ 89%]
-tests/test_notice2next.py::test_api_extract_valid_notice PASSED          [ 94%]
+tests/test_notice2next.py::test_case_1_complete_circular_strict PASSED   [  4%]
+tests/test_notice2next.py::test_case_2_omitted_deadline_strict PASSED    [  9%]
+tests/test_notice2next.py::test_case_3_informational_zero_tasks_strict PASSED [ 13%]
+tests/test_notice2next.py::test_case_4_unrelated_date_trap_strict PASSED [ 18%]
+tests/test_notice2next.py::test_case_5_multi_role_bangla_strict PASSED   [ 22%]
+tests/test_notice2next.py::test_case_6_contradictory_flagged_for_human_review_strict PASSED [ 27%]
+tests/test_notice2next.py::test_verify_source_quote_strict_verbatim PASSED [ 31%]
+tests/test_notice2next.py::test_verify_source_quote_punctuation_stripped_not_strict PASSED [ 36%]
+tests/test_notice2next.py::test_verify_source_quote_hallucination_rejected PASSED [ 40%]
+tests/test_notice2next.py::test_independent_field_evidence_generation PASSED [ 45%]
+tests/test_notice2next.py::test_verify_deadline_grounded_in_quote_passes PASSED [ 50%]
+tests/test_notice2next.py::test_verify_deadline_not_in_quote_flagged PASSED [ 54%]
+tests/test_notice2next.py::test_verify_deadline_contradictory_notice_flagged PASSED [ 59%]
+tests/test_notice2next.py::test_extract_with_gemma_api_success_path PASSED [ 63%]
+tests/test_notice2next.py::test_extract_with_gemma_api_timeout_fallback PASSED [ 68%]
+tests/test_notice2next.py::test_extract_with_gemma_api_malformed_json_fallback PASSED [ 72%]
+tests/test_notice2next.py::test_csv_export_format PASSED                 [ 77%]
+tests/test_notice2next.py::test_api_benchmark_endpoint_strict_pass PASSED [ 81%]
+tests/test_notice2next.py::test_api_health_endpoint PASSED               [ 86%]
+tests/test_notice2next.py::test_api_samples_endpoint PASSED              [ 90%]
+tests/test_notice2next.py::test_api_extract_valid_notice PASSED          [ 95%]
 tests/test_notice2next.py::test_api_extract_empty_fails PASSED           [100%]
-============================= 19 passed in 0.58s ==============================
+============================= 22 passed in 0.60s ==============================
 ```
 
 ### Benchmark Regression Results:
@@ -133,7 +136,7 @@ tests/test_notice2next.py::test_api_extract_empty_fails PASSED           [100%]
 | **Case 5** | Multi-Role Bangla Notice | 2 | 2 | **100% Verbatim** | Correctly parsed duties for শ্রেণি শিক্ষক (Homeroom) vs আইসিটি সহকারী (Lab Asst). |
 | **Case 6** | Contradictory Staff Memo | 1 | 1 | **Flagged Review** | Correctly flagged contradictory timing (10 AM vs 5 PM) for human educator review. |
 
-*Disclaimer: This benchmark measures pipeline consistency across 6 synthetic test scenarios. It demonstrates boundary enforcement but does not represent universal accuracy across all school systems.*
+*Disclaimer: This benchmark measures pipeline consistency across 6 synthetic test scenarios as a deterministic regression test, not a live Gemma accuracy evaluation. It demonstrates boundary enforcement but does not represent universal accuracy across all school systems.*
 
 ---
 

@@ -196,9 +196,62 @@ def test_independent_field_evidence_generation():
     val = validate_action_item(notice, item)
     assert "field_evidence" in val
     assert val["field_evidence"]["quote"]["is_strict_substring"] is True
-    assert val["field_evidence"]["action"]["is_semantically_proven"] is False  # Honest semantic disclaimer
+    assert val["field_evidence"]["action"]["is_semantically_proven"] is False
     assert val["field_evidence"]["assignee"]["status"] == "ROLE_FOUND_IN_TEXT"
-    assert val["field_evidence"]["deadline"]["status"] == "DEADLINE_GROUNDED"
+    assert val["field_evidence"]["deadline"]["status"] == "DEADLINE_GROUNDED_IN_QUOTE"
+
+
+def test_verify_deadline_grounded_in_quote_passes():
+    """Deadline present in the relevant supporting quote is verified."""
+    notice = "Notice: Science teachers must submit proposals by October 29, 2026."
+    quote = "Science teachers must submit proposals by October 29, 2026."
+    ok, reason = verify_deadline(notice, quote, "October 29, 2026")
+    assert ok is True
+    assert reason == "DEADLINE_GROUNDED_IN_QUOTE"
+
+
+def test_verify_deadline_not_in_quote_flagged():
+    """Deadline that exists elsewhere in notice but NOT in this action's quote is flagged."""
+    notice = (
+        "Paragraph 1: Sports day fee due December 15.\n"
+        "Paragraph 2: Homeroom teachers must check attendance sheets."
+    )
+    quote = "Homeroom teachers must check attendance sheets."
+    # Model mistakenly grabs December 15 from paragraph 1
+    ok, reason = verify_deadline(notice, quote, "December 15")
+    assert ok is False
+    assert reason == "DEADLINE_NOT_IN_SUPPORTING_QUOTE"
+
+    # In validate_action_item, this MUST trigger FLAGGED_FOR_HUMAN_REVIEW
+    val = validate_action_item(notice, {
+        "action": "Check attendance sheets",
+        "assignee": "Homeroom teachers",
+        "deadline": "December 15",
+        "source_quote": quote
+    })
+    assert val["validation_status"] == "FLAGGED_FOR_HUMAN_REVIEW"
+    assert "Date Mismatch" in val["validation_badge_text"]
+
+
+def test_verify_deadline_contradictory_notice_flagged():
+    """Notice with conflicting/contradictory timing is flagged rather than accepting NOT STATED."""
+    notice = (
+        "Slips must be turned in by 10:00 AM, however no slips accepted before 5:00 PM due to repairs. "
+        "Details subject to revision without notice."
+    )
+    quote = "Slips must be turned in by 10:00 AM, however no slips accepted before 5:00 PM due to repairs."
+    ok, reason = verify_deadline(notice, quote, "NOT STATED")
+    assert ok is False
+    assert reason == "CONTRADICTORY_TIMING_REQUIRES_REVIEW"
+
+    val = validate_action_item(notice, {
+        "action": "Turn in slips",
+        "assignee": "Staff",
+        "deadline": "NOT STATED",
+        "source_quote": quote
+    })
+    assert val["validation_status"] == "FLAGGED_FOR_HUMAN_REVIEW"
+    assert "Contradiction Detected" in val["validation_badge_text"]
 
 
 # ==============================================================================
