@@ -279,18 +279,35 @@ def verify_deadline(notice_text: str, quote: str, stated_deadline: str) -> Tuple
                     return False, "UNRELATED_HISTORICAL_DATE_TRAP"
 
     dl_comp = parse_date_components(stated_deadline)
-    quote_comp = parse_date_components(quote)
+    quote_times = extract_normalized_times(quote)
 
     # 4. Strict Clock Time Verification:
-    # If the candidate specified a time, every stated time MUST exist in quote_comp['times']
+    # If the candidate specified a time, every stated time MUST exist in quote
     if dl_comp["times"]:
         for t in dl_comp["times"]:
-            if t not in quote_comp["times"]:
+            if t not in quote_times:
                 return False, "DEADLINE_TIME_MISMATCH_IN_QUOTE"
 
     # 5. Strict Semantic Date Verification (Year, Month, Day, Weekday):
     has_candidate_date = dl_comp["month"] is not None or dl_comp["day"] is not None or dl_comp["year"] is not None
-    has_quote_date = quote_comp["month"] is not None or quote_comp["day"] is not None or quote_comp["year"] is not None
+    
+    quote_clean_no_time = re.sub(r"\b\d{1,2}(?::\d{2})?\s*(?:am|pm)\b", " ", norm_quote, flags=re.IGNORECASE)
+    quote_clean_no_time = re.sub(r"\b\d{1,2}:\d{2}\b", " ", quote_clean_no_time)
+    quote_clean_no_time = re.sub(r"[০-৯]{1,2}:[০-৯]{2}", " ", quote_clean_no_time)
+    
+    quote_has_year = bool(re.search(r"\b(19\d{2}|20\d{2}|১৯[০-৯]{2}|২০[০-৯]{2})\b", quote_clean_no_time))
+    quote_has_month = any(
+        re.search(rf"\b{m}\b", quote_clean_no_time, re.IGNORECASE)
+        for m in [
+            "january", "february", "march", "april", "may", "june",
+            "july", "august", "september", "october", "november", "december",
+            "jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec",
+            "জানুয়ারি", "ফেব্রুয়ারি", "মার্চ", "এপ্রিল", "মে", "জুন",
+            "জুলাই", "আগস্ট", "সেপ্টেম্বর", "অক্টোবর", "নভেম্বর", "ডিসেম্বর"
+        ]
+    )
+    quote_has_day = bool(re.search(r"\b([0-9]{1,2}|[০-৯]{1,2})\b", quote_clean_no_time))
+    has_quote_date = quote_has_year or quote_has_month or quote_has_day
 
     if has_candidate_date and not has_quote_date:
         # Candidate extracted a date, but the supporting quote contains no date
@@ -299,24 +316,35 @@ def verify_deadline(notice_text: str, quote: str, stated_deadline: str) -> Tuple
             return False, "DEADLINE_NOT_IN_SUPPORTING_QUOTE"
         return False, "HALLUCINATED_DEADLINE_NOT_IN_CIRCULAR"
 
-    # Day: Fail if stated day does not match quote day (e.g. day 3 vs day 30)
-    if dl_comp["day"] is not None:
-        if quote_comp["day"] is None or dl_comp["day"] != quote_comp["day"]:
+    # Year: Candidate year MUST exist as a distinct word in quote
+    if dl_comp["year"]:
+        if not re.search(r"\b" + re.escape(dl_comp["year"]) + r"\b", norm_quote):
             return False, "DEADLINE_DATE_COMPONENT_MISMATCH"
 
-    # Month: Fail if stated month does not match quote month
-    if dl_comp["month"] is not None:
-        if quote_comp["month"] is None or dl_comp["month"] != quote_comp["month"]:
+    # Month: Candidate month MUST exist in quote
+    if dl_comp["month"]:
+        if not re.search(r"\b" + re.escape(dl_comp["month"]) + r"\b", norm_quote, re.IGNORECASE):
             return False, "DEADLINE_DATE_COMPONENT_MISMATCH"
 
-    # Year: Fail if stated year does not match quote year
-    if dl_comp["year"] is not None:
-        if quote_comp["year"] is None or dl_comp["year"] != quote_comp["year"]:
+    # Weekday: Candidate weekday MUST exist in quote
+    if dl_comp["weekday"]:
+        if not re.search(r"\b" + re.escape(dl_comp["weekday"]) + r"\b", norm_quote, re.IGNORECASE):
             return False, "DEADLINE_DATE_COMPONENT_MISMATCH"
 
-    # Weekday: Fail if stated weekday does not match quote weekday
-    if dl_comp["weekday"] is not None:
-        if quote_comp["weekday"] is None or dl_comp["weekday"] != quote_comp["weekday"]:
+    # Day: Candidate day MUST be grounded as a distinct day token (not a clock time digit)
+    if dl_comp["day"]:
+        d_val = dl_comp["day"]
+        m_val = dl_comp["month"]
+        day_matched = False
+        if m_val:
+            pat1 = r"\b" + re.escape(m_val) + r"\s+0?" + re.escape(d_val) + r"\b"
+            pat2 = r"\b0?" + re.escape(d_val) + r"\s+" + re.escape(m_val) + r"\b"
+            if re.search(pat1, norm_quote, re.IGNORECASE) or re.search(pat2, norm_quote, re.IGNORECASE):
+                day_matched = True
+        if not day_matched:
+            if re.search(r"\b0?" + re.escape(d_val) + r"(?:st|nd|rd|th)?\b", quote_clean_no_time, re.IGNORECASE):
+                day_matched = True
+        if not day_matched:
             return False, "DEADLINE_DATE_COMPONENT_MISMATCH"
 
     # 6. Overall Content Word Grounding: Fail closed if meaningful words are missing from quote
