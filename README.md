@@ -7,7 +7,7 @@
 [![Model](https://img.shields.io/badge/Model-Google%20Gemma%202-8e44ad)](https://ai.google.dev/gemma)
 [![Python](https://img.shields.io/badge/Python-3.11%20%7C%203.13-3776ab?logo=python&logoColor=white)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Tests: 25 Passed](https://img.shields.io/badge/Tests-25%20Passed%20(100%25)-success)](tests/test_notice2next.py)
+[![Tests: 28 Passed](https://img.shields.io/badge/Tests-28%20Passed%20(100%25)-success)](tests/test_notice2next.py)
 
 ---
 
@@ -38,14 +38,15 @@ flowchart TD
     D --> F[Raw Structured Actions JSON]
     E --> F
     F --> G[Layer 2: Deterministic Evidence Grounding Engine]
-    G --> H[Exact Substring Quote Verification]
-    G --> I[Deadline Presence & Historical Date Trap Check]
-    G --> J[Explicit NOT STATED Enforcement]
-    G --> K[Contradiction Detection]
-    H & I & J & K --> L{Evidence Assessment}
-    L -->|Strict Verbatim Match: Grounding >= 70%| M[Status: VERIFIED_QUOTE_GROUNDED]
-    L -->|Punctuation Differs / Missing / Contradictory| N[Status: FLAGGED_FOR_HUMAN_REVIEW]
-    M & N --> O[Layer 3: UI Reactive Checklist & CSV / Markdown Exporters]
+    G --> H[Strict Verbatim Quote Verification]
+    G --> I[Semantic Date & Time Component Parsing]
+    G --> J[Fail-Closed Role & Assignee Matching]
+    G --> K[Fee & Document Grounding Verification]
+    G --> L[Explicit NOT STATED & Contradiction Check]
+    H & I & J & K & L --> M{Multi-Field Guardrail Checks}
+    M -->|Verbatim Quote + Exact Date/Time + Grounded Role & Fee| N[Status: VERIFIED_QUOTE_GROUNDED]
+    M -->|Date/Role/Fee Mismatch or Missing Evidence| O[Status: FLAGGED_FOR_HUMAN_REVIEW]
+    N & O --> P[Layer 3: UI Reactive Checklist & CSV / Markdown Exporters]
 ```
 
 ### Layer 1: Extraction Engine (Google Gemma 2 & Heuristic Fallback)
@@ -54,10 +55,13 @@ The notice text is processed by **Google Gemma 2** (`google/gemma-2-9b-it`) via 
 ### Layer 2: Deterministic Evidence Grounding (Python Engine)
 Before any action reaches the teacher, our Python validation layer inspects every field:
 1. **Strict Verbatim Substring Matching:** Verifies that `source_quote` exists **verbatim** in the circular. If a candidate quote only matches after stripping punctuation (`PUNCTUATION_STRIPPED_WORD_MATCH`), it is **not** granted verified status; it is flagged for teacher review.
-2. **Semantic Distinction:** Verifying that a quote exists in the text does **not** prove that the action verb was interpreted without error. Notice2Next explicitly marks the action field: `🔍 Action Intent (Teacher Review Needed)`.
-3. **Explicit `NOT STATED` Enforcement:** If a notice mentions a task without a date, the engine strictly enforces `deadline: "NOT STATED"`.
-4. **Historical Date Trap Protection:** Ensures historical reference dates (e.g., "Founded in 1974", "National Day March 26") are not misattributed as task deadlines.
-5. **Contradiction Detection:** Surfaces conflicting time instructions (e.g. 10 AM vs 5 PM) as `⚠️ Contradiction Detected (Review)`.
+2. **Semantic Date Component Parsing:** Separates calendar year, month, and day from clock times, eliminating substring matching collisions (e.g. day 3 vs 30, or hour 3:00 PM).
+3. **Fail-Closed Role Matching:** Partial role matches (e.g. "Grade 12 Science Teachers" vs "Grade 10 Science Teachers") are flagged for human review (`ROLE_PARTIAL_MATCH`) rather than accepted as verified.
+4. **Fee & Required Document Grounding:** Validates monetary amounts and required forms against the supporting quote. If a fee is invented without source evidence, it is rejected and flagged for review.
+5. **Semantic Distinction:** Verifying that a quote exists in the text does **not** prove that the action verb was interpreted without error. Notice2Next explicitly marks the action field: `🔍 Action Intent (Teacher Review Needed)`.
+6. **Explicit `NOT STATED` Enforcement:** If a notice mentions a task without a date, the engine strictly enforces `deadline: "NOT STATED"`.
+7. **Historical Date Trap Protection:** Ensures historical reference dates (e.g., "Founded in 1974", "National Day March 26") are not misattributed as task deadlines.
+8. **Contradiction Detection:** Surfaces conflicting time instructions (e.g. 10 AM vs 5 PM) as `⚠️ Contradiction Detected (Review)`.
 
 ### Layer 3: Interactive Teacher Interface & Exporters
 A responsive, high-contrast (WCAG AA compliant) single-page application with:
@@ -81,7 +85,7 @@ To maintain transparency, Notice2Next includes an automated evaluation benchmark
 | **Case 5** | Multi-Role Bangla Circular (শ্রেণি শিক্ষক ও আইসিটি) | Bangla | 2 | 2 | **100% Verbatim** | ✓ Distinct duties & deadlines extracted for homeroom vs lab staff. |
 | **Case 6** | Contradictory & Malformed Staff Note | English | 1 | 1 | **Flagged Review** | ✓ Correctly flagged contradictory timing (10 AM vs 5 PM) for human educator review. |
 
-**Regression Suite Result:** **100% Pass Rate (6/6 Scenarios Passed, 25/25 Automated Unit & Integration Tests Passed in 0.56s)**.
+**Regression Suite Result:** **100% Pass Rate (6/6 Scenarios Passed, 28/28 Automated Unit & Integration Tests Passed in 0.65s)**.
 
 *Disclaimer: This benchmark measures pipeline consistency across 6 synthetic test scenarios as a deterministic regression test, not a live Gemma accuracy evaluation. It demonstrates boundary enforcement but does not claim universal accuracy across all school systems.*
 
@@ -129,7 +133,7 @@ BACKBOARD_BASE_URL=https://api.backboard.io/v1
 GEMMA_MODEL=google/gemma-2-9b-it
 PORT=8000
 ```
-*Note: If `BACKBOARD_API_KEY` is not provided, Notice2Next operates in verified offline heuristic mode with 100% exact substring matching.*
+*Note: If `BACKBOARD_API_KEY` is not configured in the environment, Notice2Next operates in deterministic heuristic fallback mode. In this mode, rule-based extractors pair with our Python verification layer (date/time component parsing, role matching, fee validation, and exact quote grounding) without universal accuracy guarantees.*
 
 ### 3. Run Automated Tests
 ```bash

@@ -93,42 +93,142 @@ def extract_normalized_times(text: str) -> List[str]:
     return times
 
 
-def extract_date_entities(text: str) -> Dict[str, Set[str]]:
-    """Extracts date numbers, months, and weekdays for strict verification."""
+def parse_date_components(text: str) -> Dict[str, Any]:
+    """
+    Parses date components explicitly into year, month, day, weekday, and times.
+    Separates calendar day of month from clock time hours so that
+    'October 3, 2026 at 3:00 PM' vs 'October 30, 2026 at 3:00 PM' are strictly distinguished.
+    """
+    if not text:
+        return {"year": None, "month": None, "day": None, "weekday": None, "times": []}
+
     lower = text.lower()
-    
-    en_months = {
+    times = extract_normalized_times(text)
+
+    # Clean clock times out so digits don't get confused with day of month
+    cleaned = lower
+    cleaned = re.sub(r"\b\d{1,2}(?::\d{2})?\s*(?:am|pm)\b", " ", cleaned)
+    cleaned = re.sub(r"\b\d{1,2}:\d{2}\b", " ", cleaned)
+    cleaned = re.sub(r"(?:দুপুর|সকাল|বিকাল|সন্ধ্যা|রাত)?\s*[০-৯]{1,2}:[০-৯]{2}\s*(?:ঘটিকা)?", " ", cleaned)
+
+    # Year (4 digits)
+    year = None
+    y_match = re.search(r"\b(19\d{2}|20\d{2})\b", cleaned)
+    if y_match:
+        year = y_match.group(1)
+        cleaned = cleaned[:y_match.start()] + " " + cleaned[y_match.end():]
+    else:
+        y_bn = re.search(r"\b(১৯[০-৯]{2}|২০[০-৯]{2})\b", cleaned)
+        if y_bn:
+            year = y_bn.group(1)
+            cleaned = cleaned[:y_bn.start()] + " " + cleaned[y_bn.end():]
+
+    en_months = [
         "january", "february", "march", "april", "may", "june",
-        "july", "august", "september", "october", "november", "december",
-        "jan", "feb", "mar", "apr", "jun", "jul", "aug", "sep", "oct", "nov", "dec"
-    }
-    bn_months = {
+        "july", "august", "september", "october", "november", "december"
+    ]
+    en_short = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"]
+    bn_months = [
         "জানুয়ারি", "ফেব্রুয়ারি", "মার্চ", "এপ্রিল", "মে", "জুন",
         "জুলাই", "আগস্ট", "সেপ্টেম্বর", "অক্টোবর", "নভেম্বর", "ডিসেম্বর"
-    }
-    weekdays = {
+    ]
+
+    month = None
+    for m in en_months:
+        if re.search(rf"\b{m}\b", cleaned):
+            month = m
+            break
+    if not month:
+        for m in bn_months:
+            if m in cleaned:
+                month = m
+                break
+    if not month:
+        for m in en_short:
+            if re.search(rf"\b{m}\b", cleaned):
+                month = m
+                break
+
+    weekday = None
+    weekdays = [
         "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
         "রবিবার", "সোমবার", "মঙ্গলবার", "বুধবার", "বৃহস্পতিবার", "শুক্রবার", "শনিবার"
-    }
+    ]
+    for w in weekdays:
+        if w in cleaned:
+            weekday = w
+            break
 
-    found_months = {m for m in (en_months | bn_months) if m in lower}
-    found_weekdays = {w for w in weekdays if w in lower}
+    day = None
+    if month:
+        m1 = re.search(rf"\b{re.escape(month)}\s+([0-9]{{1,2}}|[০-৯]{{1,2}})\b", cleaned)
+        if m1:
+            day = m1.group(1).lstrip("0") or "0"
+        else:
+            m2 = re.search(rf"([0-9]{{1,2}}|[০-৯]{{1,2}})\s+{re.escape(month)}", cleaned)
+            if m2:
+                day = m2.group(1).lstrip("0") or "0"
+    if not day:
+        day_match = re.search(r"\b([0-9]{1,2}|[০-৯]{1,2})\b", cleaned)
+        if day_match:
+            d_val = day_match.group(1)
+            try:
+                if int(d_val) <= 31:
+                    day = d_val.lstrip("0") or "0"
+            except ValueError:
+                day = d_val
+
+    return {"year": year, "month": month, "day": day, "weekday": weekday, "times": times}
+
+
+def verify_fee_or_docs(quote: str, fee_or_docs: str) -> Tuple[bool, str]:
+    """
+    Validates that any extracted fee or required document is grounded in the supporting quote.
+    If model invents a fee (e.g. '$15') or document not in the quote, fails closed for review.
     
-    en_nums = set(re.findall(r"\b\d{1,4}\b", lower))
-    bn_nums = set(re.findall(r"[০-৯]{1,4}", lower))
-    found_nums = en_nums | bn_nums
-    
-    return {
-        "months": found_months,
-        "weekdays": found_weekdays,
-        "numbers": found_nums
-    }
+    Returns: (is_grounded, category)
+    """
+    if not fee_or_docs or fee_or_docs.strip().upper() in [
+        "NOT STATED", "NONE", "N/A", "NO FEE", "UNSPECIFIED", "NO DOCUMENTS", ""
+    ]:
+        return True, "FEE_DOCS_NOT_STATED"
+
+    norm_quote = normalize_whitespace(quote).lower() if quote else ""
+    if not norm_quote:
+        return False, "FEE_DOCS_QUOTE_EMPTY"
+
+    clean_quote = re.sub(r"[^\w\s\$৳]", "", norm_quote)
+    clean_val = re.sub(r"[^\w\s\$৳]", "", fee_or_docs.lower())
+
+    # 1. Verify Monetary Fees
+    fee_patterns = re.findall(r"(\$\s*\d+(?:\.\d{2})?|\d+\s*(?:dollars?|টাকা|tk))", clean_val)
+    if fee_patterns:
+        for fee in fee_patterns:
+            fee_clean = re.sub(r"\s+", "", fee)
+            quote_clean = re.sub(r"\s+", "", clean_quote)
+            if fee_clean not in quote_clean:
+                num_match = re.search(r"\d+", fee)
+                if not num_match or num_match.group(0) not in re.findall(r"\b\d+\b", clean_quote):
+                    return False, "FEE_NOT_IN_SUPPORTING_QUOTE"
+
+    # 2. Verify Key Document Requirements
+    cleaned_docs = re.sub(r"\b(fee|document|required|form|fee:)\s*", " ", fee_or_docs, flags=re.IGNORECASE)
+    doc_words = [
+        w for w in re.sub(r"[^\w\s]", "", cleaned_docs.lower()).split()
+        if len(w) > 3 and w not in ["student", "teachers", "stated", "none", "each", "team", "final", "before"]
+    ]
+    if doc_words:
+        missing = [w for w in doc_words if w not in clean_quote]
+        if len(missing) > len(doc_words) / 2:
+            return False, "DOCS_NOT_IN_SUPPORTING_QUOTE"
+
+    return True, "FEE_DOCS_GROUNDED_IN_QUOTE"
 
 
 def verify_deadline(notice_text: str, quote: str, stated_deadline: str) -> Tuple[bool, str]:
     """
     Validates that a stated deadline is strictly grounded in the RELEVANT supporting quote.
-    No token ratio guessing. Date and clock time components must match the quote.
+    Parses and compares date components (year, month, day, weekday, time) explicitly.
     Fails closed when dates/times are missing or mismatched.
     
     Returns: (is_grounded, category)
@@ -169,48 +269,55 @@ def verify_deadline(notice_text: str, quote: str, stated_deadline: str) -> Tuple
 
     # 3. Historical Date Trap Check: If deadline matches founding or anniversary dates
     founding_indicators = ["founding", "founded", "established", "independence", "historic", "golden jubilee"]
-    for ind in founding_indicators:
-        if ind in norm_notice:
-            pat = rf"{ind}[^.]*?{re.escape(clean_dl)}"
-            if re.search(pat, norm_notice, re.IGNORECASE):
-                return False, "UNRELATED_HISTORICAL_DATE_TRAP"
+    clean_dl_tokens = [re.escape(w) for w in re.sub(r"[^\w\s]", " ", stated_deadline.lower()).split()]
+    if clean_dl_tokens:
+        dl_pat = r"[\s,\.-]+".join(clean_dl_tokens)
+        for ind in founding_indicators:
+            if ind in norm_notice:
+                pat = rf"{ind}[^.]*?{dl_pat}"
+                if re.search(pat, norm_notice, re.IGNORECASE):
+                    return False, "UNRELATED_HISTORICAL_DATE_TRAP"
+
+    dl_comp = parse_date_components(stated_deadline)
+    quote_comp = parse_date_components(quote)
 
     # 4. Strict Clock Time Verification:
-    # If the model specified a time, that exact time MUST exist in the supporting quote
-    dl_times = extract_normalized_times(stated_deadline)
-    quote_times = extract_normalized_times(norm_quote)
-    if dl_times:
-        for t in dl_times:
-            if t not in quote_times:
+    # If the candidate specified a time, every stated time MUST exist in quote_comp['times']
+    if dl_comp["times"]:
+        for t in dl_comp["times"]:
+            if t not in quote_comp["times"]:
                 return False, "DEADLINE_TIME_MISMATCH_IN_QUOTE"
 
-    # 5. Strict Date Entities Verification (Month, Weekday, Numbers)
-    dl_entities = extract_date_entities(stated_deadline)
-    quote_entities = extract_date_entities(norm_quote)
-    notice_entities = extract_date_entities(norm_notice)
+    # 5. Strict Semantic Date Verification (Year, Month, Day, Weekday):
+    has_candidate_date = dl_comp["month"] is not None or dl_comp["day"] is not None or dl_comp["year"] is not None
+    has_quote_date = quote_comp["month"] is not None or quote_comp["day"] is not None or quote_comp["year"] is not None
 
-    # Any month stated must be in the quote
-    for m in dl_entities["months"]:
-        if m not in quote_entities["months"]:
-            if m in notice_entities["months"]:
-                return False, "DEADLINE_NOT_IN_SUPPORTING_QUOTE"
-            return False, "HALLUCINATED_DEADLINE_NOT_IN_CIRCULAR"
+    if has_candidate_date and not has_quote_date:
+        # Candidate extracted a date, but the supporting quote contains no date
+        clean_notice = re.sub(r"[^\w\s]", "", norm_notice)
+        if clean_dl in clean_notice or (dl_comp["month"] and dl_comp["month"] in clean_notice):
+            return False, "DEADLINE_NOT_IN_SUPPORTING_QUOTE"
+        return False, "HALLUCINATED_DEADLINE_NOT_IN_CIRCULAR"
 
-    # Any weekday stated must be in the quote
-    for w in dl_entities["weekdays"]:
-        if w not in quote_entities["weekdays"]:
-            if w in notice_entities["weekdays"]:
-                return False, "DEADLINE_NOT_IN_SUPPORTING_QUOTE"
-            return False, "HALLUCINATED_DEADLINE_NOT_IN_CIRCULAR"
+    # Day: Fail if stated day does not match quote day (e.g. day 3 vs day 30)
+    if dl_comp["day"] is not None:
+        if quote_comp["day"] is None or dl_comp["day"] != quote_comp["day"]:
+            return False, "DEADLINE_DATE_COMPONENT_MISMATCH"
 
-    # Any calendar numbers (excluding hour numbers already matched in dl_times)
-    for num in dl_entities["numbers"]:
-        if any(num in t for t in dl_times):
-            continue
-        if num not in quote_entities["numbers"]:
-            if num in notice_entities["numbers"]:
-                return False, "DEADLINE_NOT_IN_SUPPORTING_QUOTE"
-            return False, "HALLUCINATED_DEADLINE_NOT_IN_CIRCULAR"
+    # Month: Fail if stated month does not match quote month
+    if dl_comp["month"] is not None:
+        if quote_comp["month"] is None or dl_comp["month"] != quote_comp["month"]:
+            return False, "DEADLINE_DATE_COMPONENT_MISMATCH"
+
+    # Year: Fail if stated year does not match quote year
+    if dl_comp["year"] is not None:
+        if quote_comp["year"] is None or dl_comp["year"] != quote_comp["year"]:
+            return False, "DEADLINE_DATE_COMPONENT_MISMATCH"
+
+    # Weekday: Fail if stated weekday does not match quote weekday
+    if dl_comp["weekday"] is not None:
+        if quote_comp["weekday"] is None or dl_comp["weekday"] != quote_comp["weekday"]:
+            return False, "DEADLINE_DATE_COMPONENT_MISMATCH"
 
     # 6. Overall Content Word Grounding: Fail closed if meaningful words are missing from quote
     stop_words = {"at", "by", "before", "on", "sharp", "sharp.", "the", "of", "and", "to", "in", "দুপুর", "সকাল", "তারিখের", "মধ্যে"}
@@ -286,19 +393,19 @@ def validate_action_item(notice_text: str, item: Dict[str, Any]) -> Dict[str, An
     # 3. Verify Assignee Grounding
     norm_notice = normalize_whitespace(notice_text).lower()
     norm_assignee = normalize_whitespace(assignee).lower()
-    if assignee.upper() in ["NOT STATED", "UNSPECIFIED", "GENERAL", ""]:
+    if assignee.upper() in ["NOT STATED", "UNSPECIFIED", "GENERAL", "ALL STAFF", ""]:
         assignee_status = "EXPLICIT_NOT_STATED"
         assignee_grounded = True
     elif norm_assignee in norm_notice:
         assignee_status = "ROLE_FOUND_IN_TEXT"
         assignee_grounded = True
     else:
-        # Check partial token match
+        # Partial match is ambiguous (e.g. Grade 12 vs Grade 10) -> MUST FAIL CLOSED for human review
         assignee_tokens = [t for t in norm_assignee.split() if len(t) > 2]
         matches = [t for t in assignee_tokens if t in norm_notice]
         if matches:
             assignee_status = "ROLE_PARTIAL_MATCH"
-            assignee_grounded = True
+            assignee_grounded = False  # Strict fail-closed!
         else:
             assignee_status = "ROLE_UNGROUNDED"
             assignee_grounded = False
@@ -311,7 +418,10 @@ def validate_action_item(notice_text: str, item: Dict[str, Any]) -> Dict[str, An
         deadline_category == "CONTRADICTORY_TIMING_REQUIRES_REVIEW"
     )
 
-    # 5. Build Independent Evidence Dict
+    # 5. Verify Fee or Required Documents
+    fee_ok, fee_category = verify_fee_or_docs(source_quote, fee_or_docs)
+
+    # 6. Build Independent Evidence Dict
     field_evidence = {
         "quote": {
             "is_strict_substring": is_strict_quote,
@@ -336,11 +446,13 @@ def validate_action_item(notice_text: str, item: Dict[str, Any]) -> Dict[str, An
             "value": deadline
         },
         "fee_or_docs": {
+            "status": fee_category,
+            "is_grounded": fee_ok,
             "value": fee_or_docs
         }
     }
 
-    # 6. Overall Verification Status & Badge
+    # 7. Overall Verification Status & Badge
     if is_contradictory:
         status = "FLAGGED_FOR_HUMAN_REVIEW"
         badge = "warning"
@@ -364,9 +476,9 @@ def validate_action_item(notice_text: str, item: Dict[str, Any]) -> Dict[str, An
         if deadline_category == "DEADLINE_TIME_MISMATCH_IN_QUOTE":
             badge_text = "⚠️ Time Mismatch (Not in Quote)"
             notes = "The extracted time does not match the time specified in this action's evidence quote."
-        elif deadline_category == "DEADLINE_NOT_IN_SUPPORTING_QUOTE":
+        elif deadline_category in ["DEADLINE_NOT_IN_SUPPORTING_QUOTE", "DEADLINE_DATE_COMPONENT_MISMATCH"]:
             badge_text = "⚠️ Date Mismatch (Not in Quote)"
-            notes = "The extracted date appears elsewhere in the circular, but is NOT supported by this action's evidence quote."
+            notes = "The extracted date appears elsewhere in the circular or does not match this action's evidence quote."
         elif deadline_category == "UNRELATED_HISTORICAL_DATE_TRAP":
             badge_text = "⚠️ Historical Date Trap"
             notes = "The extracted deadline matched a historical founding or anniversary date."
@@ -379,15 +491,30 @@ def validate_action_item(notice_text: str, item: Dict[str, Any]) -> Dict[str, An
     elif not assignee_grounded:
         status = "FLAGGED_FOR_HUMAN_REVIEW"
         badge = "warning"
-        badge_text = "⚠️ Role Warning"
-        notes = "Assigned role could not be grounded in circular text."
+        if assignee_status == "ROLE_PARTIAL_MATCH":
+            badge_text = "⚠️ Role Mismatch (Review)"
+            notes = f"Assigned role '{assignee}' only partially matches circular text. Teacher review required to verify specific grade or role."
+        else:
+            badge_text = "⚠️ Role Warning"
+            notes = "Assigned role could not be grounded in circular text."
+    elif not fee_ok:
+        status = "FLAGGED_FOR_HUMAN_REVIEW"
+        badge = "warning"
+        if fee_category == "FEE_NOT_IN_SUPPORTING_QUOTE":
+            badge_text = "⚠️ Fee Mismatch (Review)"
+            notes = "The extracted fee amount is not supported by this action's evidence quote."
+        elif fee_category == "DOCS_NOT_IN_SUPPORTING_QUOTE":
+            badge_text = "⚠️ Document Mismatch (Review)"
+            notes = "The required document specified is not mentioned in this action's evidence quote."
+        else:
+            badge_text = "⚠️ Fee/Doc Warning"
+            notes = f"Requirement verification issue: {fee_category}."
     else:
-        # STRICT VERBATIM MATCH + GROUNDED DEADLINE
-        # Honest label: "Quote Found (Verbatim)" - NOT "Action Verified"
+        # STRICT VERBATIM MATCH + GROUNDED DEADLINE + GROUNDED ROLE + GROUNDED FEE/DOCS
         status = "VERIFIED_QUOTE_GROUNDED"
         badge = "quote-verified"
         badge_text = "✓ Verbatim Quote Found"
-        notes = "Supporting quote is an authentic verbatim substring and deadline is grounded. Review action text before proceeding."
+        notes = "Supporting quote is an authentic verbatim substring, deadline and role are grounded. Review action text before proceeding."
 
     return {
         "id": item.get("id", ""),

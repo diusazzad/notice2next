@@ -328,6 +328,65 @@ def test_verify_deadline_missed_explicit_date_in_quote_fails():
     assert "Date Missed in Quote" in val["validation_badge_text"]
 
 
+# 7. Date number ambiguity (P0: Day 3 vs Day 30 regression test)
+def test_verify_deadline_date_number_ambiguity_oct_3_vs_30_rejected():
+    """P0 Regression: Candidate deadline 'October 3, 2026 at 3:00 PM' against quote 'October 30, 2026 at 3:00 PM' MUST be rejected."""
+    notice = "Notice: Science teachers must submit by October 30, 2026 at 3:00 PM."
+    quote = "Science teachers must submit by October 30, 2026 at 3:00 PM."
+    candidate = "October 3, 2026 at 3:00 PM"
+    
+    ok, reason = verify_deadline(notice, quote, candidate)
+    assert ok is False
+    assert reason == "DEADLINE_DATE_COMPONENT_MISMATCH"
+
+    val = validate_action_item(notice, {
+        "action": "Submit reports",
+        "assignee": "Science teachers",
+        "deadline": candidate,
+        "source_quote": quote
+    })
+    assert val["validation_status"] == "FLAGGED_FOR_HUMAN_REVIEW"
+    assert "Date Mismatch" in val["validation_badge_text"]
+
+
+# 8. Partial Assignee Matching (P0: Grade 12 vs Grade 10 regression test)
+def test_verify_assignee_partial_match_grade_12_vs_grade_10_flagged():
+    """P0 Regression: Candidate assignee 'Grade 12 Science Teachers' against source 'Grade 10 Science Teachers' MUST be flagged for review."""
+    notice = "All Grade 10 Science Teachers are hereby instructed to submit project proposals."
+    quote = "All Grade 10 Science Teachers are hereby instructed to submit project proposals."
+    candidate_assignee = "Grade 12 Science Teachers"
+
+    val = validate_action_item(notice, {
+        "action": "Submit project proposals",
+        "assignee": candidate_assignee,
+        "deadline": "NOT STATED",
+        "source_quote": quote
+    })
+    assert val["validation_status"] == "FLAGGED_FOR_HUMAN_REVIEW"
+    assert val["field_evidence"]["assignee"]["status"] == "ROLE_PARTIAL_MATCH"
+    assert val["field_evidence"]["assignee"]["is_grounded"] is False
+    assert "Role Mismatch" in val["validation_badge_text"]
+
+
+# 9. Fee and Document Grounding (P0: Hallucinated fee regression test)
+def test_verify_fee_or_docs_hallucinated_fee_rejected():
+    """P0 Regression: Candidate fee '$15' when circular mentions no fee MUST be flagged for review."""
+    notice = "Homeroom teachers must collect excursion permission slips from all students."
+    quote = "Homeroom teachers must collect excursion permission slips from all students."
+    candidate_fee = "Fee: $15 per student"
+
+    val = validate_action_item(notice, {
+        "action": "Collect permission slips",
+        "assignee": "Homeroom teachers",
+        "deadline": "NOT STATED",
+        "fee_or_docs": candidate_fee,
+        "source_quote": quote
+    })
+    assert val["validation_status"] == "FLAGGED_FOR_HUMAN_REVIEW"
+    assert val["field_evidence"]["fee_or_docs"]["is_grounded"] is False
+    assert "Fee Mismatch" in val["validation_badge_text"]
+
+
 # ==============================================================================
 # 3. GEMMA 2 INFERENCE PATH & RESILIENCE TESTS (Mocked Calls)
 # ==============================================================================
