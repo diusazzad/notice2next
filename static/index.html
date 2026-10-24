@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Notice2Next — Source-Grounded School Circular Task Extractor</title>
+  <meta name="description" content="Convert dense school circulars and staff memos into an editable, source-backed action checklist using Google Gemma 2 and deterministic evidence grounding.">
+  
+  <!-- Modern Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@600;700;800&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
+  
+  <link rel="stylesheet" href="/static/style.css?v=1.0">
+  
+  <!-- Prevent FOUC for Light/Dark Mode -->
+  <script>
+    (function() {
+      const savedTheme = localStorage.getItem('notice2next_theme') || 'light';
+      document.documentElement.setAttribute('data-theme', savedTheme);
+    })();
+  </script>
+</head>
+<body>
+  <!-- Top Navigation & Badges -->
+  <header class="app-header">
+    <div class="header-container">
+      <div class="brand-group">
+        <div class="logo-mark">📋</div>
+        <div>
+          <h1 class="logo-title">Notice2Next</h1>
+          <p class="logo-subtitle">Source-Grounded School Circular Task Assistant</p>
+        </div>
+      </div>
+      
+      <div class="header-actions">
+        <div class="badge-row">
+          <span class="badge badge-render">Render Live</span>
+          <span class="badge badge-gemma">Google Gemma 2</span>
+          <span class="badge badge-grounding">Sub-string Grounded</span>
+          <span class="badge badge-theme">Slow & Steady</span>
+        </div>
+        <button id="themeToggleBtn" class="theme-toggle-btn" aria-label="Toggle Dark Mode" title="Toggle color theme">
+          <span id="themeIcon">🌙</span> <span id="themeLabel">Dark Mode</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Container -->
+  <main class="main-content">
+    <!-- Hero / Problem Intro -->
+    <section class="hero-section">
+      <div class="hero-badge">OECD TALIS 2024: 52% Teachers Suffer Admin Workload Stress</div>
+      <h2 class="hero-heading">Turn Bureaucratic Circulars into Clear Action Checklists</h2>
+      <p class="hero-description">
+        Paste any English or Bangla school notice. <strong>Google Gemma 2</strong> extracts duties, assignees, deadlines, and fees, while a <strong>deterministic Python engine</strong> verifies that every cited quote is an authentic substring. No hallucinated dates, no missed obligations.
+      </p>
+    </section>
+
+    <!-- Quick Loaders for 6 Synthetic Evaluation Cases -->
+    <section class="samples-section">
+      <div class="samples-header">
+        <span class="samples-title">🧪 1-Click Evaluation Scenarios:</span>
+        <span class="samples-hint">Click any button below to test against real-world edge cases</span>
+      </div>
+      <div class="samples-pills" id="samplePillsContainer">
+        <!-- Dynamically populated or static pills -->
+        <button type="button" class="sample-pill active" data-sample="case_1_complete">
+          🏫 Case 1: Complete Notice (Science Fair)
+        </button>
+        <button type="button" class="sample-pill" data-sample="case_2_omitted_deadline">
+          ⏳ Case 2: Omitted Deadline (NOT STATED)
+        </button>
+        <button type="button" class="sample-pill" data-sample="case_3_informational">
+          📢 Case 3: Informational (0 Tasks)
+        </button>
+        <button type="button" class="sample-pill" data-sample="case_4_unrelated_date">
+          🗓️ Case 4: 1974 Historical Date Trap
+        </button>
+        <button type="button" class="sample-pill" data-sample="case_5_multi_role_bangla">
+          🇧🇩 Case 5: Multi-Role Bangla Notice
+        </button>
+        <button type="button" class="sample-pill" data-sample="case_6_contradictory_malformed">
+          ⚠️ Case 6: Contradictory Staff Note
+        </button>
+      </div>
+    </section>
+
+    <!-- Work Area: Two Column Layout -->
+    <div class="workspace-grid">
+      <!-- Left Column: Input Notice -->
+      <section class="card input-card">
+        <div class="card-header">
+          <div>
+            <h3 class="card-title">School Circular / Staff Memo</h3>
+            <p class="card-subtitle">Paste administrative text or use a test case above</p>
+          </div>
+          <button id="btnClearInput" class="btn-secondary btn-sm" title="Clear text">Clear Text</button>
+        </div>
+
+        <div class="textarea-wrapper">
+          <textarea id="noticeInput" class="notice-textarea" rows="15" placeholder="Paste school circular, administrative notice, or meeting instructions here..."></textarea>
+          <div class="textarea-footer">
+            <span id="charCount">0 characters</span>
+            <span id="lineCount">0 lines</span>
+          </div>
+        </div>
+
+        <div class="input-actions">
+          <button id="btnExtract" class="btn-primary btn-extract">
+            <span class="btn-icon">⚡</span>
+            <span class="btn-text">Extract Action Checklist</span>
+          </button>
+          <button id="btnRunBenchmark" class="btn-secondary" title="Run all 6 test cases through live benchmark">
+            <span>📊</span> Run Full Benchmark
+          </button>
+        </div>
+      </section>
+
+      <!-- Right Column: Results & Interactive Checklist -->
+      <section class="card results-card" id="resultsCard">
+        <!-- Execution Trace & Status Pill -->
+        <div class="trace-bar" id="traceBar">
+          <div class="trace-pill">
+            <span class="trace-indicator" id="traceIndicator">●</span>
+            <span id="traceEngineText">Engine: Ready</span>
+          </div>
+          <div class="trace-stats">
+            <span id="traceLatency">Latency: —</span>
+            <span id="traceGrounding">Grounding: —</span>
+          </div>
+        </div>
+
+        <div class="card-header">
+          <div>
+            <h3 class="card-title" id="checklistTitle">Extracted Action Checklist</h3>
+            <p class="card-subtitle" id="checklistSubtitle">Extracted duties with exact evidence quotes</p>
+          </div>
+          <div class="export-actions" id="exportActions" style="display: none;">
+            <button id="btnDownloadCSV" class="btn-secondary btn-sm" title="Download checklist as CSV">
+              📥 Export CSV
+            </button>
+            <button id="btnCopyMarkdown" class="btn-secondary btn-sm" title="Copy as Markdown table">
+              📋 Copy Markdown
+            </button>
+          </div>
+        </div>
+
+        <!-- Empty State -->
+        <div class="empty-state" id="emptyState">
+          <div class="empty-icon">📝</div>
+          <h4 class="empty-title">No Circular Parsed Yet</h4>
+          <p class="empty-desc">Select one of the 1-click test cases above or paste a custom school circular on the left to extract actionable tasks.</p>
+        </div>
+
+        <!-- Loading State -->
+        <div class="loading-state" id="loadingState" style="display: none;">
+          <div class="spinner"></div>
+          <h4 class="loading-title">Parsing Circular with Google Gemma 2...</h4>
+          <p class="loading-desc">Extracting duties, responsible groups, and verifying evidence substrings</p>
+        </div>
+
+        <!-- Informational Zero Task State -->
+        <div class="info-zero-state" id="infoZeroState" style="display: none;">
+          <div class="info-zero-icon">ℹ️</div>
+          <h4 class="info-zero-title">Informational Notice Detected</h4>
+          <p class="info-zero-desc" id="infoZeroDesc">This circular contains general announcements or congratulations. No teacher tasks or deadlines were detected.</p>
+        </div>
+
+        <!-- Checklist Items Container -->
+        <div class="checklist-container" id="checklistContainer" style="display: none;">
+          <div class="checklist-summary-badge" id="summaryBadge">
+            <span id="summaryText">2 actions extracted • 100% Substring Grounded</span>
+          </div>
+
+          <div class="items-list" id="itemsList">
+            <!-- Dynamic Items Inserted Here -->
+          </div>
+        </div>
+
+        <!-- Anti-Hallucination Disclaimer -->
+        <div class="evidence-disclaimer" id="evidenceDisclaimer" style="display: none;">
+          <span class="disclaimer-icon">🛡️</span>
+          <p class="disclaimer-text">
+            <strong>Evidence Grounding Guarantee:</strong> Every cited quote is verified by deterministic Python logic as an exact substring of the circular. Notice2Next does not invent unstated deadlines. Teachers maintain full agency to edit or add tasks.
+          </p>
+        </div>
+      </section>
+    </div>
+
+    <!-- Live Benchmark Modal / Section -->
+    <div class="modal-overlay" id="benchmarkModal" style="display: none;">
+      <div class="modal-card">
+        <div class="modal-header">
+          <div>
+            <h3 class="modal-title">📊 6-Scenario Live Benchmark Suite</h3>
+            <p class="modal-subtitle">Measured evaluation across synthetic edge cases</p>
+          </div>
+          <button id="btnCloseModal" class="btn-close" aria-label="Close modal">✕</button>
+        </div>
+        <div class="modal-body" id="benchmarkModalBody">
+          <div class="spinner"></div>
+          <p style="text-align: center; margin-top: 1rem;">Executing live benchmark pipeline...</p>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- Footer -->
+  <footer class="app-footer">
+    <div class="footer-container">
+      <p>
+        <strong>Notice2Next</strong> — Built for <strong>Hacktoberfest 2026 Week 3</strong> (Slow and Steady).
+        Powered by Google Gemma 2 open-weight model and deterministic Python grounding.
+      </p>
+      <div class="footer-links">
+        <a href="https://github.com/diusazzad/notice2next" target="_blank" rel="noopener">GitHub Repository</a>
+        <span>•</span>
+        <a href="/docs" target="_blank" rel="noopener">OpenAPI Specification</a>
+        <span>•</span>
+        <a href="/health" target="_blank" rel="noopener">System Health Check</a>
+      </div>
+    </div>
+  </footer>
+
+  <script src="/static/app.js?v=1.0"></script>
+</body>
+</html>
