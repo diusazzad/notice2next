@@ -1,12 +1,12 @@
 """
 Notice2Next - Synthetic Test Cases & Sample Circulars
-Covers 6 distinct evaluation scenarios:
+Covers 6 distinct evaluation scenarios with strict ground-truth assertions:
 1. Complete notice with explicit actions, dates, and fees.
-2. Notice with actionable instruction but omitted deadline (must yield 'NOT STATED').
-3. Purely informational notice (advisory / congratulations, 0 actionable teacher tasks).
+2. Notice with actionable instruction but omitted deadline (must yield exactly 1 task with 'NOT STATED').
+3. Purely informational notice (advisory / congratulations, exactly 0 actionable teacher tasks).
 4. Unrelated historical/reference date (must not be confused with action deadline).
-5. Multi-role Bangla notice (distinct duties for homeroom vs lab teachers).
-6. Contradictory / ambiguous notice requiring explicit teacher review.
+5. Multi-role Bangla notice (distinct duties for homeroom vs lab teachers, exactly 2 tasks).
+6. Contradictory / ambiguous notice requiring explicit human review flag.
 """
 
 from typing import List, Dict, Any
@@ -34,17 +34,19 @@ SAMPLE_NOTICES: List[Dict[str, Any]] = [
             "Academic Coordinator, Oakridge High School"
         ),
         "expected_traits": {
+            "expected_count": 2,
             "has_actions": True,
             "has_deadlines": True,
             "has_not_stated": False,
-            "parties": ["Grade 9 and Grade 10 Science Teachers", "Homeroom Teachers of Grade 8"]
+            "parties": ["Grade 9 and Grade 10 Science Teachers", "Homeroom Teachers of Grade 8"],
+            "deadlines": ["October 29, 2026", "November 02, 2026"]
         }
     },
     {
         "id": "case_2_omitted_deadline",
         "title": "Case 2: Action Stated but Deadline Omitted",
         "language": "en",
-        "description": "Instructs teachers to update student health emergency records, but no specific deadline or time is provided. AI must flag NOT STATED.",
+        "description": "Instructs teachers to update student health emergency records, but no specific deadline or time is provided. Model must flag NOT STATED.",
         "expected_items_count": 1,
         "text": (
             "INTERNAL MEMORANDUM\n"
@@ -54,16 +56,17 @@ SAMPLE_NOTICES: List[Dict[str, Any]] = [
             "SUBJECT: UPDATING STUDENT EMERGENCY CONTACT & ALLERGY RECORDS\n\n"
             "In accordance with our updated student welfare protocol, all homeroom teachers are required to review "
             "and update the physical allergy cards and emergency guardian phone numbers in the school clinic ledger. "
-            "Physical forms may be collected from Nurse Ratched during the morning recess.\n\n"
-            "Please ensure that parents sign the updated allergy consent form.\n\n"
+            "Physical forms and parent signature confirmation sheets may be collected from Nurse Ratched during the morning recess.\n\n"
             "Regards,\n"
             "School Health Officer"
         ),
         "expected_traits": {
+            "expected_count": 1,
             "has_actions": True,
             "has_deadlines": False,
             "has_not_stated": True,
-            "parties": ["All Homeroom Teachers"]
+            "parties": ["All Homeroom Teachers"],
+            "required_deadline": "NOT STATED"
         }
     },
     {
@@ -85,6 +88,7 @@ SAMPLE_NOTICES: List[Dict[str, Any]] = [
             "Principal, Green Valley Academy"
         ),
         "expected_traits": {
+            "expected_count": 0,
             "has_actions": False,
             "has_deadlines": False,
             "has_not_stated": False,
@@ -111,9 +115,10 @@ SAMPLE_NOTICES: List[Dict[str, Any]] = [
             "Chief Editor & Archive Coordinator"
         ),
         "expected_traits": {
+            "expected_count": 1,
             "has_actions": True,
             "has_deadlines": True,
-            "unrelated_dates": ["September 15, 1974", "March 26"],
+            "unrelated_dates_rejected": ["1974", "March 26"],
             "target_deadline": "November 10, 2026 at 3:00 PM sharp",
             "parties": ["Senior Department Subject Heads"]
         }
@@ -139,27 +144,27 @@ SAMPLE_NOTICES: List[Dict[str, Any]] = [
             "আইডিয়াল মডেল হাই স্কুল ও কলেজ"
         ),
         "expected_traits": {
+            "expected_count": 2,
             "has_actions": True,
             "has_deadlines": True,
             "parties": ["৯ম ও ১০ম শ্রেণির সকল শ্রেণি শিক্ষক", "কম্পিউটার ল্যাব সহকারী ও আইসিটি শিক্ষক"],
-            "deadlines": ["২৮ অক্টোবর ২০২৬, বুধবার দুপুর ২:০০ ঘটিকা", "৩০ অক্টোবর ২০২৬"]
+            "deadlines": ["২৮ অক্টোবর ২০২৬", "৩০ অক্টোবর ২০২৬"]
         }
     },
     {
         "id": "case_6_contradictory_malformed",
         "title": "Case 6: Contradictory & Malformed Notice (Human Review Flag)",
         "language": "en",
-        "description": "Contains contradictory instructions (submit by 10 AM in body, but 5 PM in footer) and vague responsibilities, triggering validation warning.",
+        "description": "Contains contradictory timing (10:00 AM vs 5:00 PM) requiring explicit human review flagging.",
         "expected_items_count": 1,
         "text": (
             "URGENT STAFF NOTE - DRAFT COPY\n"
             "Date: 23/10/2026\n\n"
-            "All concerned members may please note that uniform inspection slips should be turned in by 10:00 AM tomorrow morning.\n"
-            "However, please note that no slips will be accepted before 5:00 PM due to system maintenance.\n"
-            "Teachers or prefects should ensure that the students comply or face administrative actions.\n\n"
+            "All concerned staff members may please note that uniform inspection slips should be turned in by 10:00 AM tomorrow morning, however no slips will be accepted before 5:00 PM due to system maintenance.\n\n"
             "Note: Details subject to unannounced revision without notice."
         ),
         "expected_traits": {
+            "expected_count": 1,
             "has_actions": True,
             "has_deadlines": True,
             "contradiction": True,

@@ -51,10 +51,10 @@
   <main class="main-content">
     <!-- Hero / Problem Intro -->
     <section class="hero-section">
-      <div class="hero-badge">OECD TALIS 2024: 52% Teachers Suffer Admin Workload Stress</div>
+      <div class="hero-badge">OECD TALIS 2024: ~52% of Teachers in Participating Systems Report Administrative Stress</div>
       <h2 class="hero-heading">Turn Bureaucratic Circulars into Clear Action Checklists</h2>
       <p class="hero-description">
-        Paste any English or Bangla school notice. <strong>Google Gemma 2</strong> extracts duties, assignees, deadlines, and fees, while a <strong>deterministic Python engine</strong> verifies that every cited quote is an authentic substring. No hallucinated dates, no missed obligations.
+        Extract action items with source-backed evidence. Verify deadlines and review flagged results before acting. Built with <strong>Google Gemma 2</strong> and a <strong>deterministic Python evidence layer</strong>.
       </p>
     </section>
 
@@ -62,10 +62,9 @@
     <section class="samples-section">
       <div class="samples-header">
         <span class="samples-title">🧪 1-Click Evaluation Scenarios:</span>
-        <span class="samples-hint">Click any button below to test against real-world edge cases</span>
+        <span class="samples-hint">Click any button below to test against synthetic edge cases</span>
       </div>
       <div class="samples-pills" id="samplePillsContainer">
-        <!-- Dynamically populated or static pills -->
         <button type="button" class="sample-pill active" data-sample="case_1_complete">
           🏫 Case 1: Complete Notice (Science Fair)
         </button>
@@ -97,6 +96,14 @@
             <p class="card-subtitle">Paste administrative text or use a test case above</p>
           </div>
           <button id="btnClearInput" class="btn-secondary btn-sm" title="Clear text">Clear Text</button>
+        </div>
+
+        <!-- Privacy Notice Banner -->
+        <div class="privacy-warning-box">
+          <span class="warning-icon">⚠️</span>
+          <div class="warning-text">
+            <strong>Privacy Notice:</strong> Do not paste real student personal data, medical records, guardian phone numbers, or confidential school disciplinary files. This hosted prototype may send text to remote API endpoints when live model inference is enabled.
+          </div>
         </div>
 
         <div class="textarea-wrapper">
@@ -157,7 +164,7 @@
         <!-- Loading State -->
         <div class="loading-state" id="loadingState" style="display: none;">
           <div class="spinner"></div>
-          <h4 class="loading-title">Parsing Circular with Google Gemma 2...</h4>
+          <h4 class="loading-title">Parsing Circular...</h4>
           <p class="loading-desc">Extracting duties, responsible groups, and verifying evidence substrings</p>
         </div>
 
@@ -171,7 +178,7 @@
         <!-- Checklist Items Container -->
         <div class="checklist-container" id="checklistContainer" style="display: none;">
           <div class="checklist-summary-badge" id="summaryBadge">
-            <span id="summaryText">2 actions extracted • 100% Substring Grounded</span>
+            <span id="summaryText">Actions extracted • Substring Grounded</span>
           </div>
 
           <div class="items-list" id="itemsList">
@@ -179,11 +186,11 @@
           </div>
         </div>
 
-        <!-- Anti-Hallucination Disclaimer -->
+        <!-- Source Evidence Check Disclaimer -->
         <div class="evidence-disclaimer" id="evidenceDisclaimer" style="display: none;">
           <span class="disclaimer-icon">🛡️</span>
           <p class="disclaimer-text">
-            <strong>Evidence Grounding Guarantee:</strong> Every cited quote is verified by deterministic Python logic as an exact substring of the circular. Notice2Next does not invent unstated deadlines. Teachers maintain full agency to edit or add tasks.
+            <strong>Source Evidence Check:</strong> Supporting text and deadline patterns are checked against the original notice. Verbatim quote matching confirms that cited text appears in the circular, but does not prove semantic completeness, legal authority, or that the action description accurately represents school intent. Teachers must review all items before taking action.
           </p>
         </div>
       </section>

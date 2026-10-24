@@ -181,10 +181,15 @@ document.addEventListener('DOMContentLoaded', () => {
       btnExtract.innerHTML = `<span class="btn-icon">⚡</span> Extract Action Checklist`;
 
       // Update Trace Bar
-      traceEngineText.textContent = `Engine: ${data.engine}`;
+      if (data.live_model_called) {
+        traceEngineText.innerHTML = `<strong>Engine:</strong> <span style="color: #9333ea; font-weight: 700;">⚡ ${escapeHtml(data.engine)}</span>`;
+        traceIndicator.style.color = '#a855f7';
+      } else {
+        traceEngineText.innerHTML = `<strong>Engine:</strong> <span style="color: #059669; font-weight: 700;">🛡️ ${escapeHtml(data.engine)}</span>`;
+        traceIndicator.style.color = '#10b981';
+      }
       traceLatency.textContent = `Latency: ${data.latency_ms}ms`;
-      traceGrounding.textContent = `Grounding: ${data.summary.grounding_rate}%`;
-      traceIndicator.style.color = data.live_model_called ? '#a855f7' : '#10b981';
+      traceGrounding.textContent = `Verbatim Grounding: ${data.summary.grounding_rate}%`;
 
       currentItems = data.items || [];
 
@@ -208,7 +213,7 @@ document.addEventListener('DOMContentLoaded', () => {
   function renderChecklist(items, summary) {
     itemsList.innerHTML = '';
 
-    summaryText.textContent = `${summary.total_items} action(s) extracted • ${summary.grounding_rate}% Substring Grounded (${summary.verified_count} verified, ${summary.flagged_count} flagged)`;
+    summaryText.textContent = `${summary.total_items} action(s) extracted • Verbatim quotes verified for ${summary.verified_count} of ${summary.total_items} item(s) (${summary.flagged_count} flagged for review)`;
 
     items.forEach((it, index) => {
       const card = document.createElement('div');
@@ -216,21 +221,22 @@ document.addEventListener('DOMContentLoaded', () => {
       card.id = `item-card-${index}`;
 
       const isDeadlineNotStated = it.deadline.toUpperCase().includes('NOT STATED');
-      const isVerified = it.validation_status === 'VERIFIED_SUBSTRING';
+      const isQuoteVerified = it.quote_verified && it.validation_status === 'VERIFIED_QUOTE_GROUNDED';
+      const badgeText = it.validation_badge_text || (isQuoteVerified ? '✓ Verbatim Quote Found' : '⚠️ Flagged for Review');
 
       card.innerHTML = `
         <div class="task-item-header">
           <input type="checkbox" class="task-checkbox" data-index="${index}" ${it.is_completed ? 'checked' : ''} aria-label="Mark task complete">
           <div class="task-title-group">
-            <input type="text" class="task-title-input" data-index="${index}" value="${escapeHtml(it.action)}" title="Click to edit task name">
+            <input type="text" class="task-title-input" data-index="${index}" value="${escapeHtml(it.action)}" title="Click to edit task description">
           </div>
         </div>
 
         <div class="task-meta-row">
-          <span class="meta-pill meta-assignee" title="Responsible Person or Group">
+          <span class="meta-pill meta-assignee" title="Responsible Group in Circular">
             👤 ${escapeHtml(it.assignee)}
           </span>
-          <span class="meta-pill meta-deadline ${isDeadlineNotStated ? 'not-stated' : ''}" title="Task Deadline">
+          <span class="meta-pill meta-deadline ${isDeadlineNotStated ? 'not-stated' : ''}" title="Extracted Task Deadline">
             📅 ${escapeHtml(it.deadline)}
           </span>
           ${it.fee_or_docs && it.fee_or_docs !== 'NOT STATED' ? `
@@ -238,8 +244,11 @@ document.addEventListener('DOMContentLoaded', () => {
               📄 ${escapeHtml(it.fee_or_docs)}
             </span>
           ` : ''}
-          <span class="meta-pill ${isVerified ? 'meta-status-verified' : 'meta-status-warning'}" title="${escapeHtml(it.validation_notes)}">
-            ${isVerified ? '✓ Substring Verified' : '⚠️ Flagged for Review'}
+          <span class="meta-pill ${isQuoteVerified ? 'meta-status-verified' : 'meta-status-warning'}" title="${escapeHtml(it.validation_notes)}">
+            ${escapeHtml(badgeText)}
+          </span>
+          <span class="meta-pill meta-action-review" title="Exact quote confirms text presence; semantic alignment requires teacher verification.">
+            🔍 Action Intent (Teacher Review Needed)
           </span>
         </div>
 
@@ -353,15 +362,19 @@ document.addEventListener('DOMContentLoaded', () => {
 
       const data = await res.json();
 
+      const isLive = data.live_model_called;
       let tableHtml = `
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; flex-wrap: wrap; gap: 0.5rem;">
           <div>
             <strong>Pass Rate:</strong> <span style="font-size: 1.15rem; color: #10b981; font-weight: 800;">${data.pass_rate_percentage}%</span>
             (${data.passed_cases}/${data.total_test_cases} cases passed)
           </div>
           <div style="font-size: 0.8rem; color: var(--text-subtle);">
-            Measured against exact ground-truth assertions
+            <strong>Engine Evaluated:</strong> <span style="font-weight: 700; color: ${isLive ? '#9333ea' : '#059669'};">${isLive ? '⚡ ' : '🛡️ '}${escapeHtml(data.engine_evaluated)}</span>
           </div>
+        </div>
+        <div style="font-size: 0.78rem; color: var(--text-muted); margin-bottom: 1rem;">
+          Evaluating exact task counts, role grounding, explicit NOT STATED enforcement, and date-trap rejections.
         </div>
 
         <table class="benchmark-table">

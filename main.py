@@ -120,62 +120,118 @@ def export_csv(req: ExportCSVRequest):
 def run_live_benchmark():
     """
     Runs automated evaluation across all 6 synthetic test circulars.
-    Measures extraction accuracy, quote verification rate, and failure admissions.
+    Strictly verifies expected item counts, field presence, date grounding, and human-review flags.
+    Fails if any expected trait does not match.
     """
     results = []
     total_samples = len(SAMPLE_NOTICES)
     passed_cases = 0
+    engine_name = "Unknown"
+    live_called = False
 
     for sample in SAMPLE_NOTICES:
         text = sample["text"]
         expected_count = sample["expected_items_count"]
+        sample_id = sample["id"]
         
         ext = extract_action_items(text)
+        engine_name = ext["engine"]
+        live_called = ext["live_model_called"]
+        
         val = validate_extracted_checklist(text, ext["raw_items"])
-
         items = val["items"]
         item_count = len(items)
 
-        # Evaluate correctness according to expected traits
         case_passed = True
         notes = []
 
-        if sample["id"] == "case_3_informational":
-            # Must detect 0 action items
-            if item_count == 0:
-                notes.append("Correctly detected 0 tasks in informational notice.")
-            else:
-                case_passed = False
-                notes.append(f"Failed: Extracted {item_count} tasks from informational notice.")
-        elif sample["id"] == "case_2_omitted_deadline":
-            # Must set deadline to NOT STATED
-            has_not_stated = any(it["deadline"] == "NOT STATED" for it in items)
-            if has_not_stated:
-                notes.append("Correctly marked deadline as NOT STATED without guessing.")
-            else:
-                case_passed = False
-                notes.append("Failed: Did not mark missing deadline as NOT STATED.")
-        elif sample["id"] == "case_4_unrelated_date":
-            # Must NOT use 1974 or March 26 as deadline
-            used_trap = any("1974" in it["deadline"] or "March 26" in it["deadline"] for it in items)
-            if not used_trap:
-                notes.append("Correctly rejected unrelated historical dates (1974, March 26).")
-            else:
-                case_passed = False
-                notes.append("Failed: Trapped by unrelated historical date.")
+        # 1. Exact Item Count Check (Strict)
+        if item_count != expected_count:
+            case_passed = False
+            notes.append(f"Count mismatch: Expected {expected_count} tasks, got {item_count}.")
         else:
-            # Check quote verification rate
-            if val["verified_count"] >= 1:
-                notes.append(f"Successfully verified {val['verified_count']} action items with exact quotes.")
-            else:
+            notes.append(f"Task count exact match ({item_count}/{expected_count}).")
+
+        # 2. Case-Specific Assertions
+        if sample_id == "case_1_complete":
+            assignees = " ".join([it["assignee"] for it in items])
+            deadlines = " ".join([it["deadline"] for it in items])
+            fees_docs = " ".join([it["fee_or_docs"] for it in items])
+            
+            if "Science Teachers" not in assignees or "Homeroom Teachers" not in assignees:
                 case_passed = False
-                notes.append("Failed: No verified action items found.")
+                notes.append("Failed: Expected both Science and Homeroom teachers.")
+            if "October 29" not in deadlines or "November 02" not in deadlines:
+                case_passed = False
+                notes.append("Failed: Expected October 29 and November 02 deadlines.")
+            if "$15" not in fees_docs:
+                case_passed = False
+                notes.append("Failed: Expected $15 fee.")
+            if val["verified_count"] != 2:
+                case_passed = False
+                notes.append("Failed: Expected both items to have verbatim verified quotes.")
+
+        elif sample_id == "case_2_omitted_deadline":
+            if item_count > 0:
+                item = items[0]
+                if item["deadline"] != "NOT STATED":
+                    case_passed = False
+                    notes.append(f"Failed: Deadline should be 'NOT STATED', got '{item['deadline']}'.")
+                if "homeroom teachers" not in item["assignee"].lower():
+                    case_passed = False
+                    notes.append("Failed: Expected Homeroom Teachers assignee.")
+                if not item["quote_verified"]:
+                    case_passed = False
+                    notes.append("Failed: Expected supporting quote to be verbatim verified.")
+                else:
+                    notes.append("Correctly enforced 'NOT STATED' without hallucinating a date.")
+
+        elif sample_id == "case_3_informational":
+            if item_count != 0:
+                case_passed = False
+                notes.append(f"Failed: Extracted {item_count} tasks from congratulatory advisory.")
+            else:
+                notes.append("Correctly identified 0 actionable tasks.")
+
+        elif sample_id == "case_4_unrelated_date":
+            if item_count > 0:
+                item = items[0]
+                dl = item["deadline"]
+                if "1974" in dl or "March 26" in dl:
+                    case_passed = False
+                    notes.append(f"Failed: Trapped by historical date in deadline '{dl}'.")
+                elif "November 10" not in dl:
+                    case_passed = False
+                    notes.append(f"Failed: Target deadline November 10 not found in '{dl}'.")
+                else:
+                    notes.append("Successfully isolated Nov 10 deadline and rejected 1974 founding trap.")
+
+        elif sample_id == "case_5_multi_role_bangla":
+            assignees = " ".join([it["assignee"] for it in items])
+            deadlines = " ".join([it["deadline"] for it in items])
+            if "শ্রেণি শিক্ষক" not in assignees or ("আইসিটি" not in assignees and "ল্যাব" not in assignees):
+                case_passed = False
+                notes.append("Failed: Did not distinguish শ্রেণি শিক্ষক from আইসিটি/ল্যাব সহকারী.")
+            if "২৮ অক্টোবর" not in deadlines or "৩০ অক্টোবর" not in deadlines:
+                case_passed = False
+                notes.append("Failed: Missing expected Bangla deadlines (২৮ অক্টোবর or ৩০ অক্টোবর).")
+            else:
+                notes.append("Successfully parsed distinct Bangla roles and deadlines.")
+
+        elif sample_id == "case_6_contradictory_malformed":
+            if item_count > 0:
+                item = items[0]
+                if item["validation_status"] != "FLAGGED_FOR_HUMAN_REVIEW":
+                    case_passed = False
+                    notes.append(f"Failed: Contradictory notice should be FLAGGED_FOR_HUMAN_REVIEW, got {item['validation_status']}.")
+                else:
+                    notes.append("Correctly flagged contradictory timing for human review.")
 
         if case_passed:
             passed_cases += 1
 
         results.append({
-            "case_id": sample["id"],
+            "case_id": sample_id,
             "title": sample["title"],
             "language": sample["language"],
             "passed": case_passed,
@@ -188,14 +244,16 @@ def run_live_benchmark():
     pass_rate = round((passed_cases / total_samples) * 100.0, 1)
 
     return {
+        "engine_evaluated": engine_name,
+        "live_model_called": live_called,
         "total_test_cases": total_samples,
         "passed_cases": passed_cases,
         "pass_rate_percentage": pass_rate,
         "test_results": results,
         "transparency_statement": (
-            "This benchmark is conducted across 6 synthetic school notices covering edge cases "
-            "(informational text, omitted deadlines, multi-role Bangla, and historical date traps). "
-            "It demonstrates evidence verification mechanics but does not claim universal real-world accuracy across all school systems."
+            "This synthetic regression benchmark evaluates Notice2Next across 6 handcrafted edge cases "
+            "with strict expected-count and field assertions. It validates pipeline mechanics and boundary guards, "
+            "but does not claim universal real-world accuracy across arbitrary school circulars."
         )
     }
 

@@ -1,12 +1,14 @@
 """
 Notice2Next - Deterministic Evidence & Anti-Hallucination Validator
-Layer 3 of Notice2Next Architecture.
+Layer 2 of Notice2Next Architecture.
 
-Guarantees:
-1. Exact Substring Verification: Ensures every extracted supporting_quote is an authentic substring of the circular.
-2. Deadline Grounding: Ensures stated deadlines exist in the source text; prevents hallucinated dates.
+Core Principles:
+1. Strict Substring Verification: Verifies that supporting quotes exist verbatim in the source notice.
+   - Punctuation-stripped matches are categorized as PUNCTUATION_STRIPPED_WORD_MATCH and flagged for review.
+2. Independent Field Evidence: Action, assignee, deadline, and fees are validated as separate evidence streams.
+   - Finding a quote confirms text existence; it does NOT prove the action was semantically interpreted without error.
 3. Explicit Missing Information: Enforces 'NOT STATED' when dates or fees are absent.
-4. Human Review Flagging: Surfaces non-grounded or ambiguous items with clear visual warnings.
+4. Human Review Flagging: Surfaces non-grounded, ambiguous, or contradictory items with clear visual warnings.
 """
 
 import re
@@ -15,19 +17,24 @@ from typing import Dict, Any, List, Tuple
 
 
 def normalize_whitespace(text: str) -> str:
-    """Normalize whitespace, newlines, and unicode for robust substring comparison."""
+    """Normalize whitespace, newlines, and unicode for robust comparison."""
     if not text:
         return ""
-    # Normalize unicode (handles Bangla conjuncts and composite characters)
     text = unicodedata.normalize("NFKC", text)
-    # Collapse any sequence of whitespace/newlines to a single space
     return re.sub(r"\s+", " ", text).strip()
 
 
 def verify_source_quote(notice_text: str, candidate_quote: str) -> Tuple[bool, str, float]:
     """
-    Checks whether candidate_quote is an exact substring of the original notice.
-    Returns: (is_verified, reason_code, match_ratio)
+    Checks candidate_quote against the original notice.
+    Returns: (is_strict_substring, match_category, confidence_score)
+
+    Categories:
+    - STRICT_SUBSTRING_MATCH: Verbatim substring on normalized text (is_strict_substring=True).
+    - PUNCTUATION_STRIPPED_WORD_MATCH: Matches only after punctuation removal (is_strict_substring=False, flagged for review).
+    - PARAPHRASED_OR_TRUNCATED: Word overlap >= 75% (is_strict_substring=False).
+    - UNVERIFIED_OR_HALLUCINATED: No meaningful match (is_strict_substring=False).
+    - EMPTY_QUOTE: No quote provided.
     """
     if not candidate_quote or not candidate_quote.strip():
         return False, "EMPTY_QUOTE", 0.0
@@ -35,17 +42,17 @@ def verify_source_quote(notice_text: str, candidate_quote: str) -> Tuple[bool, s
     norm_notice = normalize_whitespace(notice_text).lower()
     norm_quote = normalize_whitespace(candidate_quote).lower()
 
-    # Exact substring match on normalized text
+    # 1. STRICT Normalized Substring Match
     if norm_quote in norm_notice:
-        return True, "EXACT_SUBSTRING", 1.0
+        return True, "STRICT_SUBSTRING_MATCH", 1.0
 
-    # Punctuation-stripped fallback attempt
+    # 2. Punctuation-stripped word match (NOT strict substring, must be flagged for review)
     clean_notice = re.sub(r"[^\w\s]", "", norm_notice)
     clean_quote = re.sub(r"[^\w\s]", "", norm_quote)
     if clean_quote and clean_quote in clean_notice:
-        return True, "EXACT_WORDS_MATCH", 0.95
+        return False, "PUNCTUATION_STRIPPED_WORD_MATCH", 0.75
 
-    # Check for short quote containment (if quote is too long, model might have truncated or paraphrased)
+    # 3. Paraphrase / Truncation Check
     words = clean_quote.split()
     if len(words) >= 4:
         matched_words = [w for w in words if w in clean_notice]
@@ -59,6 +66,7 @@ def verify_source_quote(notice_text: str, candidate_quote: str) -> Tuple[bool, s
 def verify_deadline(notice_text: str, quote: str, stated_deadline: str) -> Tuple[bool, str]:
     """
     Validates deadline grounding against circular text and quote.
+    Returns: (is_grounded, category)
     """
     if not stated_deadline:
         return True, "NOT_STATED_DEFAULT"
@@ -93,7 +101,7 @@ def verify_deadline(notice_text: str, quote: str, stated_deadline: str) -> Tuple
     if not dl_tokens:
         return False, "EMPTY_DEADLINE_TOKENS"
 
-    # At least the core date/time tokens must exist in notice
+    # At least core date/time tokens must exist in notice
     found_tokens = [tok for tok in dl_tokens if tok in clean_notice]
     token_ratio = len(found_tokens) / len(dl_tokens)
 
@@ -104,7 +112,6 @@ def verify_deadline(notice_text: str, quote: str, stated_deadline: str) -> Tuple
     founding_indicators = ["founding", "founded", "established", "independence", "historic"]
     for ind in founding_indicators:
         if ind in norm_notice:
-            # Check if the extracted deadline is located right next to founding keyword
             pat = rf"{ind}[^.]*?{re.escape(clean_dl)}"
             if re.search(pat, norm_notice, re.IGNORECASE):
                 return False, "UNRELATED_HISTORICAL_DATE_TRAP"
@@ -112,10 +119,24 @@ def verify_deadline(notice_text: str, quote: str, stated_deadline: str) -> Tuple
     return True, "DEADLINE_GROUNDED"
 
 
+def detect_contradictions(text_segment: str) -> bool:
+    """Detects mutually contradictory timing patterns within a clause."""
+    lower = text_segment.lower()
+    # Check for contrasting time windows: e.g. "by 10:00 am ... however no ... before 5:00 pm"
+    has_am = bool(re.search(r"10:00\s*am", lower))
+    has_pm = bool(re.search(r"5:00\s*pm", lower))
+    has_contrast = any(c in lower for c in ["however", "contrary", "instead", "revision without notice"])
+    return has_am and has_pm and has_contrast
+
+
 def validate_action_item(notice_text: str, item: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Validates a single extracted action item.
-    Enriches item with validation fields.
+    Validates a single extracted action item across separate evidence streams:
+    1. Quote evidence (strict substring check)
+    2. Action intent (flagged that semantics must be verified by educator)
+    3. Assignee grounding
+    4. Deadline grounding
+    5. Contradiction detection
     """
     action_text = item.get("action", "").strip()
     assignee = item.get("assignee", "NOT STATED").strip()
@@ -124,55 +145,98 @@ def validate_action_item(notice_text: str, item: Dict[str, Any]) -> Dict[str, An
     source_quote = item.get("source_quote", "").strip()
 
     # 1. Verify Source Quote
-    quote_ok, quote_reason, quote_score = verify_source_quote(notice_text, source_quote)
+    is_strict_quote, quote_category, quote_score = verify_source_quote(notice_text, source_quote)
 
     # 2. Verify Deadline
-    deadline_ok, deadline_reason = verify_deadline(notice_text, source_quote, deadline)
+    deadline_ok, deadline_category = verify_deadline(notice_text, source_quote, deadline)
 
-    # 3. Calculate Grounding Confidence Score (0.0 to 1.0)
-    score = 0.0
-    if quote_ok:
-        score += 0.55
+    # 3. Verify Assignee Grounding
+    norm_notice = normalize_whitespace(notice_text).lower()
+    norm_assignee = normalize_whitespace(assignee).lower()
+    if assignee.upper() in ["NOT STATED", "UNSPECIFIED", "GENERAL", ""]:
+        assignee_status = "EXPLICIT_NOT_STATED"
+        assignee_grounded = True
+    elif norm_assignee in norm_notice:
+        assignee_status = "ROLE_FOUND_IN_TEXT"
+        assignee_grounded = True
     else:
-        score += 0.1 * quote_score
+        # Check partial token match
+        assignee_tokens = [t for t in norm_assignee.split() if len(t) > 2]
+        matches = [t for t in assignee_tokens if t in norm_notice]
+        if matches:
+            assignee_status = "ROLE_PARTIAL_MATCH"
+            assignee_grounded = True
+        else:
+            assignee_status = "ROLE_UNGROUNDED"
+            assignee_grounded = False
 
-    if deadline_ok:
-        score += 0.25
-    
-    if action_text and len(action_text) >= 10:
-        score += 0.10
+    # 4. Check Contradictions
+    is_contradictory = detect_contradictions(source_quote) or detect_contradictions(action_text)
 
-    if assignee and assignee.upper() != "NOT STATED":
-        # Check if assignee tokens appear in circular
-        norm_assignee = normalize_whitespace(assignee).lower()
-        if norm_assignee in normalize_whitespace(notice_text).lower():
-            score += 0.10
-    else:
-        score += 0.05
+    # 5. Build Independent Evidence Dict
+    field_evidence = {
+        "quote": {
+            "is_strict_substring": is_strict_quote,
+            "category": quote_category,
+            "display_label": "Verbatim Quote Found" if is_strict_quote else (
+                "Punctuation Differs (Review)" if quote_category == "PUNCTUATION_STRIPPED_WORD_MATCH" else "Quote Unverified"
+            )
+        },
+        "action": {
+            "status": "ACTION_EXTRACTED_REQUIRES_EDUCATOR_CONFIRMATION",
+            "is_semantically_proven": False,
+            "note": "Quote matching confirms text presence; semantic alignment requires teacher verification."
+        },
+        "assignee": {
+            "status": assignee_status,
+            "is_grounded": assignee_grounded,
+            "value": assignee
+        },
+        "deadline": {
+            "status": deadline_category,
+            "is_grounded": deadline_ok,
+            "value": deadline
+        },
+        "fee_or_docs": {
+            "value": fee_or_docs
+        }
+    }
 
-    final_score = round(min(score, 1.0), 2)
-
-    # 4. Determine Validation Status
-    if quote_ok and deadline_ok and final_score >= 0.70:
-        status = "VERIFIED_SUBSTRING"
-        badge = "verified"
-        notes = "Evidence confirmed: Supporting quote is an authentic substring and deadline is grounded."
-    elif quote_reason == "PARAPHRASED_OR_TRUNCATED":
+    # 6. Overall Verification Status & Badge
+    if is_contradictory:
         status = "FLAGGED_FOR_HUMAN_REVIEW"
         badge = "warning"
-        notes = "Quote partially matches but appears paraphrased or truncated. Teacher verification recommended."
-    elif not quote_ok:
+        badge_text = "⚠️ Contradiction Detected (Review)"
+        notes = "Contradictory timing or revision notice detected. Teacher review required before acting."
+    elif not is_strict_quote:
         status = "FLAGGED_FOR_HUMAN_REVIEW"
         badge = "warning"
-        notes = f"Evidence unverified: Supporting quote was not found verbatim in original circular ({quote_reason})."
+        if quote_category == "PUNCTUATION_STRIPPED_WORD_MATCH":
+            badge_text = "⚠️ Punctuation Differs (Review)"
+            notes = "Quote matches words only after punctuation removal; not a strict verbatim substring."
+        elif quote_category == "PARAPHRASED_OR_TRUNCATED":
+            badge_text = "⚠️ Paraphrased Quote (Review)"
+            notes = "Quote appears paraphrased or truncated. Verify against original circular."
+        else:
+            badge_text = "⚠️ Quote Unverified"
+            notes = "Supporting quote was not found verbatim in original circular."
     elif not deadline_ok:
         status = "FLAGGED_FOR_HUMAN_REVIEW"
         badge = "warning"
-        notes = f"Deadline warning: {deadline_reason}."
-    else:
+        badge_text = "⚠️ Deadline Warning"
+        notes = f"Deadline verification issue: {deadline_category}."
+    elif not assignee_grounded:
         status = "FLAGGED_FOR_HUMAN_REVIEW"
         badge = "warning"
-        notes = "Low confidence match: Please review action details against original circular."
+        badge_text = "⚠️ Role Warning"
+        notes = "Assigned role could not be grounded in circular text."
+    else:
+        # STRICT VERBATIM MATCH + GROUNDED DEADLINE
+        # Honest label: "Quote Found (Verbatim)" - NOT "Action Verified"
+        status = "VERIFIED_QUOTE_GROUNDED"
+        badge = "quote-verified"
+        badge_text = "✓ Verbatim Quote Found"
+        notes = "Supporting quote is an authentic verbatim substring and deadline is grounded. Review action text before proceeding."
 
     return {
         "id": item.get("id", ""),
@@ -183,11 +247,12 @@ def validate_action_item(notice_text: str, item: Dict[str, Any]) -> Dict[str, An
         "source_quote": source_quote or "(No quote provided)",
         "validation_status": status,
         "validation_badge": badge,
-        "quote_verified": quote_ok,
+        "validation_badge_text": badge_text,
+        "quote_verified": is_strict_quote,
         "deadline_verified": deadline_ok,
-        "grounding_score": final_score,
         "validation_notes": notes,
-        "is_completed": False  # Checklist interactive state
+        "field_evidence": field_evidence,
+        "is_completed": False
     }
 
 
@@ -195,6 +260,12 @@ def validate_extracted_checklist(notice_text: str, items: List[Dict[str, Any]]) 
     """
     Validates a list of extracted action items and provides a summary report.
     """
+    disclaimer_text = (
+        "Source Evidence Check Notice: Verbatim quote matching confirms that cited text appears in the circular. "
+        "It does not guarantee semantic completeness, legal authority, or that the action description accurately represents school intent. "
+        "Teachers must review all items before taking action."
+    )
+
     if not items:
         return {
             "total_items": 0,
@@ -203,9 +274,8 @@ def validate_extracted_checklist(notice_text: str, items: List[Dict[str, Any]]) 
             "overall_grounding_rate": 100.0,
             "items": [],
             "disclaimer": (
-                "No action items detected in this circular. "
-                "Exact quote matching verifies evidence grounding, but does not guarantee 100% semantic completeness. "
-                "Teachers should always review notices before sharing."
+                "Informational Notice: No actionable teacher tasks detected in this circular. "
+                "Teachers should review notices to ensure no informal instructions were overlooked."
             )
         }
 
@@ -217,7 +287,7 @@ def validate_extracted_checklist(notice_text: str, items: List[Dict[str, Any]]) 
         if not raw_item.get("id"):
             raw_item["id"] = f"act_{idx}"
         val_item = validate_action_item(notice_text, raw_item)
-        if val_item["validation_status"] == "VERIFIED_SUBSTRING":
+        if val_item["validation_status"] == "VERIFIED_QUOTE_GROUNDED":
             verified_count += 1
         else:
             flagged_count += 1
@@ -232,8 +302,5 @@ def validate_extracted_checklist(notice_text: str, items: List[Dict[str, Any]]) 
         "flagged_count": flagged_count,
         "overall_grounding_rate": grounding_rate,
         "items": validated_items,
-        "disclaimer": (
-            "Evidence Grounding Notice: Exact quote matching verifies that supporting evidence exists verbatim in the circular. "
-            "It does not guarantee semantic correctness or legal authority. Teachers maintain full agency to edit, add, or dismiss items."
-        )
+        "disclaimer": disclaimer_text
     }

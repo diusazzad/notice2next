@@ -409,6 +409,33 @@ body {
    Input Section
    ========================================================================== */
 
+.privacy-warning-box {
+  background-color: var(--status-warning-bg);
+  border: 1px solid var(--status-warning-border);
+  color: var(--status-warning-text);
+  border-radius: var(--radius-sm);
+  padding: 0.75rem 0.9rem;
+  font-size: 0.8rem;
+  margin-bottom: 0.9rem;
+  display: flex;
+  gap: 0.6rem;
+  align-items: flex-start;
+  line-height: 1.45;
+}
+
+.warning-icon {
+  font-size: 1.1rem;
+  flex-shrink: 0;
+}
+
+.meta-action-review {
+  background-color: var(--bg-subtle);
+  color: var(--text-subtle);
+  border-color: var(--border-color);
+  font-style: italic;
+  font-size: 0.75rem;
+}
+
 .textarea-wrapper {
   position: relative;
   margin-bottom: 1rem;
