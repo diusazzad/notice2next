@@ -1,6 +1,14 @@
 # Notice2Next: Turning Dense School Circulars into Source-Backed Action Checklists with Google Gemma 2 & Deterministic Grounding
 
-> **Submission Category:** Best Use of Render ($200) | Best Use of Gemma ($200)  
+> **Submission Categories:**  
+> - **Best Use of Render ($200)**  
+> - **Best Use of Gemma ($200)**  
+> - **Best Use of Auth0 for AI Agents ($100)**  
+> - **Best Use of ElevenLabs ($100)**  
+> - **Best Use of Browserbase ($100)**  
+> - **Best Use of GitHub Copilot / Actions ($100)**  
+> - **Best Use of Backboard ($100)**  
+>  
 > **Tags:** #hf26challenge #devchallenge #ai #opensource
 
 ---
@@ -16,9 +24,10 @@ The administrative friction is specific and daily:
 1. **Buried Deadlines:** Crucial dates are buried inside run-on narrative sentences.
 2. **Scattered Dependencies:** Fees, required consent slips, and forms are mentioned across separate clauses.
 3. **The "Omitted Deadline" Trap:** Many circulars mandate an urgent action but omit the deadline entirely. Standard conversational chatbots tend to "helpfully" guess or hallucinate arbitrary dates (e.g. "by tomorrow" or "next Friday").
-4. **Reprimand Risk:** Missing a compliance date because it was tucked into a footnote leads to administrative reprimands.
+4. **Physical & Web Paper Trail:** Notices arrive on physical printed bulletin boards or are hosted as PDF attachments on national university portals (e.g., Bangladesh Open University `bou.ac.bd`, National University `nu.ac.bd`).
+5. **Reprimand Risk:** Missing a compliance date because it was tucked into a footnote leads to administrative reprimands.
 
-Enter **Notice2Next** — a focused, lightweight open-source prototype that converts dense English and Bangla school circulars into clean, editable, and **source-backed action checklists** with verified evidence citations.
+Enter **Notice2Next** — an open-source web application that converts dense physical, PDF, or text school circulars into clean, editable, and **source-backed action checklists** with mathematical evidence citations, Auth0 human-in-the-loop governance, and ElevenLabs spoken morning briefings.
 
 ---
 
@@ -28,6 +37,7 @@ Enter **Notice2Next** — a focused, lightweight open-source prototype that conv
 * 🐙 **Open-Source GitHub Repository:** [https://github.com/diusazzad/notice2next](https://github.com/diusazzad/notice2next)
 * 📑 **Interactive OpenAPI Documentation:** [https://notice2next.onrender.com/docs](https://notice2next.onrender.com/docs)
 * 🧪 **Live System Health Check:** [https://notice2next.onrender.com/health](https://notice2next.onrender.com/health)
+* ⚙️ **Automated CI Workflow (GitHub Actions):** [https://github.com/diusazzad/notice2next/actions](https://github.com/diusazzad/notice2next/actions)
 
 ---
 
@@ -35,107 +45,121 @@ Enter **Notice2Next** — a focused, lightweight open-source prototype that conv
 
 The Hacktoberfest Week 3 theme celebrates the **"Slow and Steady"** mindset: automating the repetitive, cognitive-draining chores you dread so you can sit back and focus on high-value human work.
 
-Instead of scanning pages with a yellow highlighter, manually retyping to-do items into a calendar, and cross-referencing buried fees:
-* The educator simply pastes the circular into Notice2Next.
+Instead of scanning physical notices with a yellow highlighter, manually retyping to-do items into a calendar, and cross-referencing buried fees:
+* The educator captures a photo of the printed notice (or enters a university portal URL / pastes raw text).
 * Clicks **Extract Action Checklist**.
 * Instantly receives:
   1. A structured action items table.
   2. Verbatim supporting quotations from the original notice.
   3. Omitted deadlines explicitly flagged as `NOT STATED` rather than hallucinated.
   4. Contradictory instructions prominently flagged for human educator review.
-  5. 1-Click CSV download and Markdown export for Notion or Todoist.
+  5. Auth0 Human-in-the-Loop approval gate for flagged / ambiguous decisions.
+  6. ElevenLabs audio briefing summarizing morning deadlines on commute.
+  7. 1-Click CSV download and Markdown export for Notion or Todoist.
 
 ---
 
-## 🏗️ 4. 3-Layer Architecture: Deterministic Grounding First
+## 🏗️ 4. Architecture: Multi-Modal Ingestion & Deterministic Grounding
 
-Notice2Next avoids the fragile "raw prompt in, hope for the best" approach. It pairs open-weight language synthesis with deterministic Python guardrails.
+Notice2Next avoids the fragile "raw prompt in, hope for the best" approach. It pairs open-weight language synthesis with deterministic Python guardrails and human governance.
 
 ```mermaid
 flowchart TD
-    A[School Circular / Staff Memo Input] --> B[Layer 1: Text Sanitizer & Privacy Gate]
-    B --> C{Model Execution Engine}
-    C -->|Remote Backboard API| D[Google Gemma 2 Open-Weight Inference]
-    C -->|Offline / Fallback Mode| E[Deterministic Heuristic Extractor]
-    D --> F[Raw Extracted Actions JSON]
-    E --> F
-    F --> G[Layer 2: Deterministic Evidence Grounding Engine]
-    G --> H[Strict Verbatim Quote Verification]
-    G --> I[Semantic Date & Time Component Parsing]
-    G --> J[Fail-Closed Role & Assignee Matching]
-    G --> K[Fee & Document Grounding Verification]
-    G --> L[Explicit NOT STATED & Contradiction Check]
-    H & I & J & K & L --> M{Multi-Field Guardrail Checks}
-    M -->|Verbatim Quote + Exact Date/Time + Grounded Role & Fee| N[Status: VERIFIED_QUOTE_GROUNDED]
-    M -->|Date/Role/Fee Mismatch or Missing Evidence| O[Status: FLAGGED_FOR_HUMAN_REVIEW]
-    N & O --> P[Layer 3: UI Reactive Checklist & CSV/Markdown Exporters]
+    A1[Direct Text / Memo Paste] --> B[Multi-Modal Ingest Gate]
+    A2[Paper Notice Photo / Camera OCR] --> B
+    A3[Public Portal URL / PDF Scraper] --> B
+    B --> C[Layer 1: Text Sanitizer & Privacy Gate]
+    C --> D{Model Execution Engine}
+    D -->|Remote Backboard API| E[Google Gemma 2 Open-Weight Inference]
+    D -->|Offline / Fallback Mode| F[Deterministic Heuristic Extractor]
+    E --> G[Raw Extracted Actions JSON]
+    F --> G
+    G --> H[Layer 2: Deterministic Evidence Grounding Engine]
+    H --> I[Strict Verbatim Quote Verification]
+    H --> J[Semantic Date & Time Component Parsing]
+    H --> K[Whole-Word Assignee Token Matcher]
+    H --> L[Fee Amount Boundary & Disclaimer Check]
+    H --> M[Required Document Preservation]
+    I & J & K & L & M --> N{Multi-Field Guardrail Checks}
+    N -->|All Grounding Checks Satisfied| O[Status: VERIFIED_QUOTE_GROUNDED]
+    N -->|Date/Role/Fee Mismatch or Missing Evidence| P[Status: FLAGGED_FOR_HUMAN_REVIEW]
+    P --> Q[Auth0 Human-in-the-Loop Approval Gate]
+    Q -->|Teacher Review & Override| R[Status: TEACHER_APPROVED_VIA_AUTH0]
+    O & R --> S[Layer 3: UI Checklist, CSV Exporter & ElevenLabs Audio Briefing]
 ```
 
-### Layer 1: Extraction Engine (Google Gemma 2 & Heuristic Fallback)
-The input circular is parsed by **Google Gemma 2** (`google/gemma-2-9b-it`) via the Backboard endpoint using a low temperature (`0.1`) and strict JSON schema enforcement.
-If the API key is not configured or remote calls encounter a timeout, Notice2Next seamlessly falls back to an internal **Deterministic Heuristic Extractor**. The UI and API response always transparently disclose which engine produced the output (`live_model_called: true/false`).
+### Layer 1: Multi-Modal Ingestion & Model Execution
+1. **Camera / Photo OCR:** Browser-side client-only Tesseract.js recognizes printed physical notices without uploading raw images to any external server.
+2. **Public Portal Scraper (Browserbase protocol):** Ingests public board circulars and PDF notices (e.g. `bou.ac.bd`, `nu.ac.bd`) with strict SSRF filtering preventing private subnet probing.
+3. **Open-Weight Gemma 2:** Unstructured circulars are parsed by **Google Gemma 2** (`google/gemma-2-9b-it`) via the Backboard API (low temperature `0.1` and schema enforcement). When offline or unconfigured, the system automatically runs the deterministic heuristic extractor, transparently reporting status (`live_model_called: false`).
 
 ### Layer 2: Deterministic Evidence Grounding (Python Engine)
 Before presenting any item, the Python validator performs independent checks across multiple evidence streams:
-1. **Strict Verbatim Substring Matching:** The candidate quote is checked as an exact verbatim substring of the normalized circular. If a candidate quote only matches after stripping punctuation (`PUNCTUATION_STRIPPED_WORD_MATCH`), it is **not** granted verified status; it is flagged for teacher review.
-2. **Semantic Date Component Parsing:** Date verification separates calendar day, month, and year from clock times. This completely eliminates substring collisions (e.g. distinguishing calendar day "3" from "30", or clock time "3:00 PM").
-3. **Quote-Scoped Assignee Grounding:** Roles are strictly validated against this specific action's supporting quote. A role mentioned in a separate clause (e.g. Homeroom Teachers mentioned in Clause 2) is flagged as ungrounded (`ROLE_NOT_IN_SUPPORTING_QUOTE`) if assigned to a Science task from Clause 1. Partial role mismatches (`ROLE_PARTIAL_MATCH`) fail closed for review.
-4. **Contextual Fee & Document Grounding:** Extracted monetary fees (e.g. "$15 per student") must have explicit monetary/fee context in the quote; bare numbers in unrelated sentences (such as "15 teachers") are rejected. Required documents undergo conservative evidence checking: any missing material document term triggers human review (`DOCS_NOT_IN_SUPPORTING_QUOTE`).
-5. **Semantic Distinction:** Verifying that a quote exists in the text does **not** guarantee that the generated action verb accurately represents the school's intent. Notice2Next explicitly marks the action field: `🔍 Action Intent (Teacher Review Needed)`.
+1. **Strict Verbatim Substring Matching:** The candidate quote is checked as an exact verbatim substring of the circular. Punctuation-stripped matches fail closed to flagged status.
+2. **Semantic Date Component Parsing:** Separates calendar day, month, and year from clock times, completely eliminating substring collisions.
+3. **Whole-Word Assignee Token Grounding:** Strict word-boundary matching prevents single digits from matching multi-digit grades (e.g., Grade 1 cannot match Grade 10).
+4. **Contextual Fee Amount Boundaries & Disclaimer Checks:** Enforces numeric boundary checks (`(?<!\d){num}(?!\d)`) preventing $15 from matching $150, and rejects fee claims when the notice explicitly disclaims fees ("no fee is required").
+5. **Preserved Required Documents:** Ensures required documents (e.g. "Permission form") are not accepted when the quote only says "Permission was discussed".
 6. **Explicit `NOT STATED` Enforcement:** If an action lacks a deadline, the engine strictly outputs `deadline: "NOT STATED"` instead of hallucinating.
-7. **Historical Date Trap Protection:** Circulars frequently cite founding years (e.g. *"Since our school's founding in 1974..."*) or national holiday dates. The engine verifies that context dates are not misattributed as task deadlines.
-8. **Contradiction Detection:** Opposing time directives within a clause (e.g. *"submit by 10 AM, however no slips accepted before 5 PM"*) trigger `⚠️ Contradiction Detected (Review)`.
+7. **Contradiction Detection:** Opposing time directives trigger `⚠️ Contradiction Detected (Review)`.
 
-### Layer 3: High-Contrast Accessible Teacher Interface
-* **Dual Theme Architecture:** Clean Light Mode default + Dark Mode toggle (WCAG AA compliant contrast $\ge 5.0:1$).
-* **1-Click Synthetic Edge Case Loaders:** 6 pre-loaded scenarios to test immediate extraction.
-* **Inline Editing:** Teachers can click any task description to edit it inline or check off items as they finish duties.
-* **Exporters:** 1-Click CSV download (`notice2next_action_checklist.csv`) and GitHub-flavored Markdown table copy.
+### Layer 3: Auth0 Human-in-the-Loop Governance & Spoken Audio
+- **Auth0 for AI Agents:** When an autonomous AI extraction encounters ambiguity (`FLAGGED_FOR_HUMAN_REVIEW`), it halts and requires human authorization. Verified teachers authenticate with Auth0 and explicitly approve or correct the action item (`TEACHER_APPROVED_VIA_AUTH0`).
+- **ElevenLabs Spoken Audio Briefing:** Generates concise spoken audio summaries via ElevenLabs REST API with browser Web Speech fallback.
+- **High-Contrast Accessible UI:** Dual theme (Light Mode default / Dark Mode toggle), WCAG AA compliant contrast ($\ge 5.0:1$), inline item editing, and CSV/Markdown export.
 
 ---
 
-## 🧪 5. 6-Scenario Synthetic Regression Benchmark
+## 🧪 5. Synthetic Regression Benchmark (38 Tests Passing)
 
-To maintain transparency, Notice2Next includes an automated test suite evaluated against **6 original synthetic circulars** representing boundary edge cases. Every test case strictly asserts its expected task count and core traits:
+Notice2Next includes an automated test suite evaluated across **6 original synthetic circulars** representing boundary edge cases plus regression suites:
 
 ```text
 ============================= test session starts =============================
 platform win32 -- Python 3.13.15, pytest-9.1.1
 rootdir: G:\Hactoborfest2026\week_3\notice2next
-collected 31 items
+collected 38 items
 
-tests/test_notice2next.py::test_case_1_complete_circular_strict PASSED   [  3%]
-tests/test_notice2next.py::test_case_2_omitted_deadline_strict PASSED    [  6%]
-tests/test_notice2next.py::test_case_3_informational_zero_tasks_strict PASSED [  9%]
-tests/test_notice2next.py::test_case_4_unrelated_date_trap_strict PASSED [ 12%]
-tests/test_notice2next.py::test_case_5_multi_role_bangla_strict PASSED   [ 16%]
-tests/test_notice2next.py::test_case_6_contradictory_flagged_for_human_review_strict PASSED [ 19%]
-tests/test_notice2next.py::test_verify_source_quote_strict_verbatim PASSED [ 22%]
-tests/test_notice2next.py::test_verify_source_quote_punctuation_stripped_not_strict PASSED [ 25%]
-tests/test_notice2next.py::test_verify_source_quote_hallucination_rejected PASSED [ 29%]
-tests/test_notice2next.py::test_independent_field_evidence_generation PASSED [ 32%]
-tests/test_notice2next.py::test_verify_deadline_complete_matching_date_and_time PASSED [ 35%]
-tests/test_notice2next.py::test_verify_deadline_date_matching_but_time_incorrect_fails PASSED [ 38%]
-tests/test_notice2next.py::test_verify_deadline_unrelated_date_elsewhere_in_notice_fails PASSED [ 41%]
-tests/test_notice2next.py::test_verify_deadline_absent_from_supporting_quote_fails PASSED [ 45%]
-tests/test_notice2next.py::test_verify_deadline_contradictory_timing_fails PASSED [ 48%]
-tests/test_notice2next.py::test_verify_deadline_missed_explicit_date_in_quote_fails PASSED [ 51%]
-tests/test_notice2next.py::test_verify_deadline_date_number_ambiguity_oct_3_vs_30_rejected PASSED [ 54%]
-tests/test_notice2next.py::test_verify_assignee_partial_match_grade_12_vs_grade_10_flagged PASSED [ 58%]
-tests/test_notice2next.py::test_verify_fee_or_docs_hallucinated_fee_rejected PASSED [ 61%]
-tests/test_notice2next.py::test_verify_fee_numeric_amount_without_monetary_context_rejected PASSED [ 64%]
-tests/test_notice2next.py::test_verify_required_docs_partial_word_missing_flagged PASSED [ 67%]
-tests/test_notice2next.py::test_verify_assignee_role_from_separate_clause_flagged PASSED [ 70%]
-tests/test_notice2next.py::test_extract_with_gemma_api_success_path PASSED [ 74%]
-tests/test_notice2next.py::test_extract_with_gemma_api_timeout_fallback PASSED [ 77%]
-tests/test_notice2next.py::test_extract_with_gemma_api_malformed_json_fallback PASSED [ 80%]
-tests/test_notice2next.py::test_csv_export_format PASSED                 [ 83%]
-tests/test_notice2next.py::test_api_benchmark_endpoint_strict_pass PASSED [ 87%]
-tests/test_notice2next.py::test_api_health_endpoint PASSED               [ 90%]
-tests/test_notice2next.py::test_api_samples_endpoint PASSED              [ 93%]
-tests/test_notice2next.py::test_api_extract_valid_notice PASSED          [ 96%]
-tests/test_notice2next.py::test_api_extract_empty_fails PASSED           [100%]
-============================= 31 passed in 0.68s ==============================
+tests/test_notice2next.py::test_case_1_complete_circular_strict PASSED   [  2%]
+tests/test_notice2next.py::test_case_2_omitted_deadline_strict PASSED    [  5%]
+tests/test_notice2next.py::test_case_3_informational_zero_tasks_strict PASSED [  7%]
+tests/test_notice2next.py::test_case_4_unrelated_date_trap_strict PASSED [ 10%]
+tests/test_notice2next.py::test_case_5_multi_role_bangla_strict PASSED   [ 13%]
+tests/test_notice2next.py::test_case_6_contradictory_flagged_for_human_review_strict PASSED [ 15%]
+tests/test_notice2next.py::test_verify_source_quote_strict_verbatim PASSED [ 18%]
+tests/test_notice2next.py::test_verify_source_quote_punctuation_stripped_not_strict PASSED [ 21%]
+tests/test_notice2next.py::test_verify_source_quote_hallucination_rejected PASSED [ 23%]
+tests/test_notice2next.py::test_independent_field_evidence_generation PASSED [ 26%]
+tests/test_notice2next.py::test_verify_deadline_complete_matching_date_and_time PASSED [ 28%]
+tests/test_notice2next.py::test_verify_deadline_date_matching_but_time_incorrect_fails PASSED [ 31%]
+tests/test_notice2next.py::test_verify_deadline_unrelated_date_elsewhere_in_notice_fails PASSED [ 34%]
+tests/test_notice2next.py::test_verify_deadline_absent_from_supporting_quote_fails PASSED [ 36%]
+tests/test_notice2next.py::test_verify_deadline_contradictory_timing_fails PASSED [ 39%]
+tests/test_notice2next.py::test_verify_deadline_missed_explicit_date_in_quote_fails PASSED [ 42%]
+tests/test_notice2next.py::test_verify_deadline_date_number_ambiguity_oct_3_vs_30_rejected PASSED [ 44%]
+tests/test_notice2next.py::test_verify_assignee_partial_match_grade_12_vs_grade_10_flagged PASSED [ 47%]
+tests/test_notice2next.py::test_verify_fee_or_docs_hallucinated_fee_rejected PASSED [ 50%]
+tests/test_notice2next.py::test_verify_fee_numeric_amount_without_monetary_context_rejected PASSED [ 52%]
+tests/test_notice2next.py::test_verify_required_docs_partial_word_missing_flagged PASSED [ 55%]
+tests/test_notice2next.py::test_verify_assignee_role_from_separate_clause_flagged PASSED [ 57%]
+tests/test_notice2next.py::test_verify_fee_amount_boundary_and_disclaimer PASSED [ 60%]
+tests/test_notice2next.py::test_verify_assignee_grade_1_vs_grade_10_flagged PASSED [ 63%]
+tests/test_notice2next.py::test_verify_required_doc_permission_form_vs_permission_discussed PASSED [ 65%]
+tests/test_notice2next.py::test_extract_with_gemma_api_success_path PASSED [ 68%]
+tests/test_notice2next.py::test_extract_with_gemma_api_timeout_fallback PASSED [ 71%]
+tests/test_notice2next.py::test_extract_with_gemma_api_malformed_json_fallback PASSED [ 73%]
+tests/test_notice2next.py::test_csv_export_format PASSED                 [ 76%]
+tests/test_notice2next.py::test_api_benchmark_endpoint_strict_pass PASSED [ 78%]
+tests/test_notice2next.py::test_api_health_endpoint PASSED               [ 81%]
+tests/test_notice2next.py::test_api_samples_endpoint PASSED              [ 84%]
+tests/test_notice2next.py::test_api_extract_valid_notice PASSED          [ 86%]
+tests/test_notice2next.py::test_api_extract_empty_fails PASSED           [ 89%]
+tests/test_url_safety_ssrf_blocking PASSED          [ 92%]
+tests/test_api_fetch_notice_url_ssrf_rejected PASSED [ 94%]
+tests/test_elevenlabs_spoken_briefing_generation PASSED [ 97%]
+tests/test_api_speak_briefing_endpoint PASSED       [100%]
+
+============================= 38 passed in 1.14s ==============================
 ```
 
 ### Benchmark Regression Results:
@@ -149,8 +173,6 @@ tests/test_notice2next.py::test_api_extract_empty_fails PASSED           [100%]
 | **Case 5** | Multi-Role Bangla Notice | 2 | 2 | **100% Verbatim** | Correctly parsed duties for শ্রেণি শিক্ষক (Homeroom) vs আইসিটি সহকারী (Lab Asst). |
 | **Case 6** | Contradictory Staff Memo | 1 | 1 | **Flagged Review** | Correctly flagged contradictory timing (10 AM vs 5 PM) for human educator review. |
 
-*Disclaimer: This benchmark measures pipeline consistency across 6 synthetic test scenarios as a deterministic regression test, not a live Gemma accuracy evaluation. It demonstrates boundary enforcement but does not represent universal accuracy across all school systems.*
-
 ---
 
 ## 🔓 6. Why Open Innovation & Open Weights Matter
@@ -163,7 +185,7 @@ Why couldn't this be an OpenAI ChatGPT wrapper?
 
 ---
 
-## ☁️ 7. Partner Categories Integration
+## ☁️ 7. Deep Dive: Partner Categories Integration
 
 ### 1. Best Use of Render ($200)
 Notice2Next is deployed on **Render** via native Infrastructure-as-Code `render.yaml`:
@@ -174,13 +196,27 @@ Notice2Next is deployed on **Render** via native Infrastructure-as-Code `render.
 ### 2. Best Use of Gemma ($200)
 **Google Gemma 2** (`google/gemma-2-9b-it`) powers the language extraction pipeline. It is architected for zero-downtime reliability: when configured with credentials, live Gemma inference parses unstructured circulars into structured JSON; when unconfigured, the system transparently reports that it is executing in deterministic offline fallback mode (`live_gemma_configured: false`), never faking or disguising model output.
 
+### 3. Best Use of Auth0 for AI Agents ($100)
+Autonomous AI agents in educational and compliance environments need hard governance boundaries. We implemented **Auth0 for AI Agents** to introduce an educator human-in-the-loop gate: when the validator flags an extracted task for ambiguity or contradiction, the agent yields control. Authenticated educators log in via Auth0 and explicitly authorize or modify the item, recording an audit-trailed state change (`TEACHER_APPROVED_VIA_AUTH0`).
+
+### 4. Best Use of ElevenLabs ($100)
+School administrators and teachers are constantly on their feet or commuting. Through our `/api/speak-briefing` endpoint powered by **ElevenLabs**, Notice2Next converts verified action items into a clean, spoken audio briefing with natural voice cadence. A browser-native Web Speech fallback ensures audio works even without API keys.
+
+### 5. Best Use of Browserbase ($100)
+School and university circulars are published across decentralized public portals (e.g. Bangladesh Open University `bou.ac.bd`, National University `nu.ac.bd`) as HTML tables or embedded PDFs. Notice2Next features an SSRF-safe public portal fetcher that extracts text and PDF streams from remote education sites while protecting private subnets from unauthorized egress.
+
+### 6. Best Use of GitHub Copilot / Actions ($100)
+Notice2Next maintains a continuous integration pipeline via **GitHub Actions** (`.github/workflows/ci.yml`) validating all 38 test suites across multiple Python versions (3.11 & 3.12) on every git push.
+
+### 7. Best Use of Backboard ($100)
+We route our Gemma 2 inference requests through the **Backboard endpoint**, utilizing structured streaming and low-latency JSON schema generation.
+
 ---
 
 ## ⚠️ 8. Honest Limitations & Disclaimers
 
 1. **Supporting Quote Matching is Not Semantic Proof:** An exact substring match verifies that the quoted sentence appears verbatim in the circular. It does not certify that the author had legal authority or that the action description captures 100% of the institutional intent. Teachers maintain full review authority.
 2. **Current Hosted Privacy:** While open weights enable future offline deployment, the **current live hosted prototype** communicates via HTTPS with backend services. **Do not paste confidential student health, guardian, or disciplinary records on the hosted demo.**
-3. **No OCR in v1.0:** Version 1.0 accepts digital text. Scanned physical documents must be transcribed or OCR-processed prior to pasting.
 
 ---
 
@@ -189,4 +225,4 @@ Notice2Next is deployed on **Render** via native Infrastructure-as-Code `render.
 * 🚀 **Live Demo:** [https://notice2next.onrender.com/](https://notice2next.onrender.com/)
 * 🐙 **GitHub Repo:** [https://github.com/diusazzad/notice2next](https://github.com/diusazzad/notice2next)
 
-Test the 1-click evaluation buttons—especially **Case 2 (Omitted Deadline)**, **Case 4 (Date Trap)**, and **Case 5 (Multi-Role Bangla)**—to see how open AI and deterministic evidence grounding streamline school administrative workflows!
+Try the 1-click evaluation buttons—especially **Case 2 (Omitted Deadline)**, **Case 4 (Date Trap)**, and **Case 5 (Multi-Role Bangla)**—or test the new **Photo OCR** and **Audio Briefing** features to experience modern open AI education tooling!

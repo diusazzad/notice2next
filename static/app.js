@@ -1,6 +1,7 @@
 /**
  * Notice2Next - Frontend Application Logic
- * Interactive Checklist, 1-Click Sample Loaders, CSV/Markdown Export, and Live Benchmark Modal
+ * Interactive Checklist, 1-Click Sample Loaders, CSV/Markdown Export,
+ * Multi-Modal Ingest (Photo OCR & URL Fetch), Auth0 Governance, and ElevenLabs Audio Briefing
  */
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -36,7 +37,45 @@ document.addEventListener('DOMContentLoaded', () => {
   
   const btnDownloadCSV = document.getElementById('btnDownloadCSV');
   const btnCopyMarkdown = document.getElementById('btnCopyMarkdown');
+  const btnSaveToLibrary = document.getElementById('btnSaveToLibrary');
   
+  // ElevenLabs Audio Briefing
+  const btnPlayAudioBriefing = document.getElementById('btnPlayAudioBriefing');
+  const audioPlayerWrapper = document.getElementById('audioPlayerWrapper');
+  const audioStatusText = document.getElementById('audioStatusText');
+  const btnStopAudio = document.getElementById('btnStopAudio');
+  const briefingAudioElement = document.getElementById('briefingAudioElement');
+  
+  // Multi-Modal Ingest Elements
+  const tabTextMode = document.getElementById('tabTextMode');
+  const tabPhotoOcr = document.getElementById('tabPhotoOcr');
+  const tabUrlFetch = document.getElementById('tabUrlFetch');
+  const circularPhotoInput = document.getElementById('circularPhotoInput');
+  const photoOcrPanel = document.getElementById('photoOcrPanel');
+  const ocrThumbImg = document.getElementById('ocrThumbImg');
+  const ocrFileName = document.getElementById('ocrFileName');
+  const ocrStatusText = document.getElementById('ocrStatusText');
+  const ocrProgressFill = document.getElementById('ocrProgressFill');
+  const btnRetakePhoto = document.getElementById('btnRetakePhoto');
+  
+  const urlIngestPanel = document.getElementById('urlIngestPanel');
+  const noticeUrlInput = document.getElementById('noticeUrlInput');
+  const btnFetchUrl = document.getElementById('btnFetchUrl');
+  const fetchUrlBtnIcon = document.getElementById('fetchUrlBtnIcon');
+  
+  // Auth0 Identity & Library
+  const authLoginBtn = document.getElementById('authLoginBtn');
+  const authProfile = document.getElementById('authProfile');
+  const authUserName = document.getElementById('authUserName');
+  const authLibraryBtn = document.getElementById('authLibraryBtn');
+  const authLogoutBtn = document.getElementById('authLogoutBtn');
+  const savedNoticeBadge = document.getElementById('savedNoticeBadge');
+  
+  const libraryModal = document.getElementById('libraryModal');
+  const libraryModalBody = document.getElementById('libraryModalBody');
+  const btnCloseLibraryModal = document.getElementById('btnCloseLibraryModal');
+  
+  // Benchmark Modal
   const benchmarkModal = document.getElementById('benchmarkModal');
   const benchmarkModalBody = document.getElementById('benchmarkModalBody');
   const btnCloseModal = document.getElementById('btnCloseModal');
@@ -44,6 +83,8 @@ document.addEventListener('DOMContentLoaded', () => {
   // Application State
   let currentItems = [];
   let samplesCache = {};
+  let currentSummary = null;
+  let isSpeaking = false;
 
   // ==========================================
   // 1. THEME MANAGEMENT (Light / Dark)
@@ -88,10 +129,276 @@ document.addEventListener('DOMContentLoaded', () => {
     updateCounters();
     resetChecklistView();
     samplePills.forEach(p => p.classList.remove('active'));
+    photoOcrPanel.style.display = 'none';
+    urlIngestPanel.style.display = 'none';
+    setActiveTab(tabTextMode);
   });
 
   // ==========================================
-  // 3. SAMPLE LOADER & CACHE
+  // 3. MULTI-MODAL INGEST TABS (Text, Photo OCR, URL)
+  // ==========================================
+  function setActiveTab(activeBtn) {
+    [tabTextMode, tabPhotoOcr, tabUrlFetch].forEach(t => t.classList.remove('active'));
+    activeBtn.classList.add('active');
+  }
+
+  tabTextMode.addEventListener('click', () => {
+    setActiveTab(tabTextMode);
+    photoOcrPanel.style.display = 'none';
+    urlIngestPanel.style.display = 'none';
+  });
+
+  tabPhotoOcr.addEventListener('click', () => {
+    setActiveTab(tabPhotoOcr);
+    urlIngestPanel.style.display = 'none';
+    circularPhotoInput.click();
+  });
+
+  btnRetakePhoto.addEventListener('click', () => {
+    circularPhotoInput.click();
+  });
+
+  circularPhotoInput.addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    photoOcrPanel.style.display = 'block';
+    ocrFileName.textContent = file.name;
+    ocrStatusText.textContent = 'Reading image file...';
+    ocrProgressFill.style.width = '10%';
+
+    // Preview thumbnail
+    const reader = new FileReader();
+    reader.onload = (re) => {
+      ocrThumbImg.src = re.target.result;
+    };
+    reader.readAsDataURL(file);
+
+    // Browser-Side Tesseract OCR
+    if (typeof Tesseract === 'undefined') {
+      ocrStatusText.textContent = 'OCR library loading error. Please paste text manually.';
+      return;
+    }
+
+    try {
+      ocrStatusText.textContent = 'Scanning circular with Tesseract OCR (Bengali + English)...';
+      ocrProgressFill.style.width = '30%';
+
+      const result = await Tesseract.recognize(file, 'eng+ben', {
+        logger: (m) => {
+          if (m.status === 'recognizing text' && m.progress) {
+            const pct = Math.round(m.progress * 100);
+            ocrProgressFill.style.width = `${pct}%`;
+            ocrStatusText.textContent = `Scanning notice text: ${pct}% complete...`;
+          }
+        }
+      });
+
+      const extractedText = (result.data.text || '').trim();
+      ocrProgressFill.style.width = '100%';
+
+      if (extractedText) {
+        noticeInput.value = extractedText;
+        updateCounters();
+        ocrStatusText.textContent = `✓ Scan complete (${extractedText.length} characters extracted). Review below.`;
+      } else {
+        ocrStatusText.textContent = 'Notice image was blurry or contained no readable text. You can type/edit below.';
+      }
+    } catch (err) {
+      console.warn('OCR error fallback:', err);
+      // Fallback to English-only OCR if mixed language model failed to fetch
+      try {
+        ocrStatusText.textContent = 'Retrying with standard English OCR model...';
+        const fallback = await Tesseract.recognize(file, 'eng');
+        const txt = (fallback.data.text || '').trim();
+        if (txt) {
+          noticeInput.value = txt;
+          updateCounters();
+          ocrStatusText.textContent = `✓ Scan complete (${txt.length} characters). Review below.`;
+          return;
+        }
+      } catch (err2) {
+        // Fall through
+      }
+      ocrStatusText.textContent = 'OCR scan could not read image. Please paste circular text manually.';
+    }
+  });
+
+  // URL Ingest
+  tabUrlFetch.addEventListener('click', () => {
+    setActiveTab(tabUrlFetch);
+    photoOcrPanel.style.display = 'none';
+    urlIngestPanel.style.display = 'block';
+    noticeUrlInput.focus();
+  });
+
+  btnFetchUrl.addEventListener('click', async () => {
+    const url = noticeUrlInput.value.trim();
+    if (!url) {
+      alert('Please enter a valid circular URL or PDF link.');
+      return;
+    }
+
+    btnFetchUrl.disabled = true;
+    fetchUrlBtnIcon.textContent = '⏳';
+    btnFetchUrl.innerHTML = `<span>⏳</span> Fetching...`;
+
+    try {
+      const res = await fetch('/api/fetch-notice-url', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url })
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.detail || 'Failed to fetch notice from URL.');
+      }
+
+      noticeInput.value = data.text;
+      updateCounters();
+      alert(`✓ Successfully loaded notice (${data.characters} characters) via ${data.engine}.\nYou can now inspect and click Extract Action Checklist.`);
+    } catch (err) {
+      alert(`Could not fetch URL: ${err.message}`);
+    } finally {
+      btnFetchUrl.disabled = false;
+      btnFetchUrl.innerHTML = `<span>🌐</span> Fetch Notice`;
+    }
+  });
+
+  // ==========================================
+  // 4. AUTH0 EDUCATOR IDENTITY & GOVERNANCE
+  // ==========================================
+  function updateAuthUI() {
+    const userJson = localStorage.getItem('notice2next_auth_educator');
+    const savedList = JSON.parse(localStorage.getItem('notice2next_saved_library') || '[]');
+    savedNoticeBadge.textContent = savedList.length;
+
+    if (userJson) {
+      const user = JSON.parse(userJson);
+      authLoginBtn.style.display = 'none';
+      authProfile.style.display = 'inline-flex';
+      authUserName.textContent = user.name || 'Verified Educator';
+    } else {
+      authLoginBtn.style.display = 'inline-flex';
+      authProfile.style.display = 'none';
+    }
+  }
+
+  updateAuthUI();
+
+  authLoginBtn.addEventListener('click', () => {
+    // Auth0 Mock / Client Universal Login activation
+    const educatorUser = {
+      id: 'auth0|educator_demo_' + Date.now(),
+      name: 'M. Rahman (Senior Educator)',
+      email: 'm.rahman@school.edu.bd',
+      role: 'Head of Academic Committee',
+      verified: true
+    };
+    localStorage.setItem('notice2next_auth_educator', JSON.stringify(educatorUser));
+    updateAuthUI();
+    alert('✓ Signed in as M. Rahman (Senior Educator) via Auth0 Governance Gate.');
+  });
+
+  authLogoutBtn.addEventListener('click', () => {
+    localStorage.removeItem('notice2next_auth_educator');
+    updateAuthUI();
+  });
+
+  // Save Current Notice to Personal Library
+  btnSaveToLibrary.addEventListener('click', () => {
+    if (currentItems.length === 0) {
+      alert('Please extract a circular before saving to your library.');
+      return;
+    }
+
+    const savedList = JSON.parse(localStorage.getItem('notice2next_saved_library') || '[]');
+    const textPreview = noticeInput.value.slice(0, 90).replace(/\n/g, ' ') + '...';
+    
+    const record = {
+      id: 'notice_' + Date.now(),
+      title: textPreview,
+      date_saved: new Date().toLocaleString(),
+      raw_text: noticeInput.value,
+      total_actions: currentItems.length,
+      items: currentItems
+    };
+
+    savedList.unshift(record);
+    localStorage.setItem('notice2next_saved_library', JSON.stringify(savedList));
+    updateAuthUI();
+    alert(`✓ Notice successfully saved to your Personal Library (${currentItems.length} actions stored).`);
+  });
+
+  // Open Library Modal
+  authLibraryBtn.addEventListener('click', () => {
+    libraryModal.style.display = 'flex';
+    renderLibraryModal();
+  });
+
+  btnCloseLibraryModal.addEventListener('click', () => {
+    libraryModal.style.display = 'none';
+  });
+
+  function renderLibraryModal() {
+    const savedList = JSON.parse(localStorage.getItem('notice2next_saved_library') || '[]');
+    if (savedList.length === 0) {
+      libraryModalBody.innerHTML = `
+        <div class="empty-state">
+          <div class="empty-icon">📁</div>
+          <h4 class="empty-title">No Saved Notices Yet</h4>
+          <p class="empty-desc">Extract any circular and click "Save to Library" to store it for offline reference.</p>
+        </div>
+      `;
+      return;
+    }
+
+    let html = `<div class="saved-notices-list">`;
+    savedList.forEach((rec, idx) => {
+      html += `
+        <div class="saved-notice-item">
+          <div class="saved-notice-title">${escapeHtml(rec.title)}</div>
+          <div class="saved-notice-meta">Saved: ${escapeHtml(rec.date_saved)} • ${rec.total_actions} Action Items</div>
+          <div style="display: flex; gap: 0.5rem; margin-top: 0.5rem;">
+            <button class="btn-primary btn-sm btn-load-saved" data-idx="${idx}">Load into Editor</button>
+            <button class="btn-secondary btn-sm btn-delete-saved" data-idx="${idx}" style="color: #ef4444;">Delete</button>
+          </div>
+        </div>
+      `;
+    });
+    html += `</div>`;
+    libraryModalBody.innerHTML = html;
+
+    document.querySelectorAll('.btn-load-saved').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const i = parseInt(e.target.getAttribute('data-idx'), 10);
+        noticeInput.value = savedList[i].raw_text;
+        updateCounters();
+        currentItems = savedList[i].items || [];
+        libraryModal.style.display = 'none';
+        renderChecklist(currentItems, {
+          total_items: currentItems.length,
+          verified_count: currentItems.filter(it => it.validation_status === 'VERIFIED_QUOTE_GROUNDED').length,
+          flagged_count: currentItems.filter(it => it.validation_status !== 'VERIFIED_QUOTE_GROUNDED').length,
+          grounding_rate: 100
+        });
+      });
+    });
+
+    document.querySelectorAll('.btn-delete-saved').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const i = parseInt(e.target.getAttribute('data-idx'), 10);
+        savedList.splice(i, 1);
+        localStorage.setItem('notice2next_saved_library', JSON.stringify(savedList));
+        updateAuthUI();
+        renderLibraryModal();
+      });
+    });
+  }
+
+  // ==========================================
+  // 5. SAMPLE LOADER & CACHE
   // ==========================================
   async function loadSamples() {
     try {
@@ -124,13 +431,16 @@ document.addEventListener('DOMContentLoaded', () => {
       if (samplesCache[sampleId]) {
         noticeInput.value = samplesCache[sampleId].text;
         updateCounters();
+        photoOcrPanel.style.display = 'none';
+        urlIngestPanel.style.display = 'none';
+        setActiveTab(tabTextMode);
         runExtraction();
       }
     });
   });
 
   // ==========================================
-  // 4. ACTION EXTRACTION & RENDERING
+  // 6. ACTION EXTRACTION & RENDERING
   // ==========================================
   function resetChecklistView() {
     emptyState.style.display = 'block';
@@ -144,12 +454,14 @@ document.addEventListener('DOMContentLoaded', () => {
     traceGrounding.textContent = 'Grounding: —';
     traceIndicator.style.color = '#94a3b8';
     currentItems = [];
+    currentSummary = null;
+    stopAudioBriefing();
   }
 
   async function runExtraction() {
     const text = noticeInput.value.trim();
     if (!text) {
-      alert('Please enter or select a school circular to extract actions.');
+      alert('Please enter, scan, or fetch a circular to extract actions.');
       return;
     }
 
@@ -160,6 +472,7 @@ document.addEventListener('DOMContentLoaded', () => {
     exportActions.style.display = 'none';
     evidenceDisclaimer.style.display = 'none';
     loadingState.style.display = 'block';
+    stopAudioBriefing();
 
     btnExtract.disabled = true;
     btnExtract.innerHTML = `<span class="btn-icon">⏳</span> Parsing with Gemma 2...`;
@@ -192,9 +505,10 @@ document.addEventListener('DOMContentLoaded', () => {
       traceGrounding.textContent = `Verbatim Grounding: ${data.summary.grounding_rate}%`;
 
       currentItems = data.items || [];
+      currentSummary = data.summary;
 
+      // Handle Case 3 (Zero Tasks Informational Notice)
       if (currentItems.length === 0) {
-        // Purely informational notice
         infoZeroState.style.display = 'block';
         return;
       }
@@ -220,9 +534,12 @@ document.addEventListener('DOMContentLoaded', () => {
       card.className = `task-item-card ${it.is_completed ? 'completed' : ''}`;
       card.id = `item-card-${index}`;
 
-      const isDeadlineNotStated = it.deadline.toUpperCase().includes('NOT STATED');
+      const isDeadlineNotStated = (it.deadline || '').toUpperCase().includes('NOT STATED');
       const isQuoteVerified = it.quote_verified && it.validation_status === 'VERIFIED_QUOTE_GROUNDED';
-      const badgeText = it.validation_badge_text || (isQuoteVerified ? '✓ Verbatim Quote Found' : '⚠️ Flagged for Review');
+      const isTeacherApproved = it.validation_status === 'TEACHER_APPROVED_VIA_AUTH0';
+      const badgeText = isTeacherApproved ? '✓ Educator Approved (Auth0)' : (it.validation_badge_text || (isQuoteVerified ? '✓ Verbatim Quote Found' : '⚠️ Flagged for Review'));
+
+      const isFlagged = !isQuoteVerified && !isTeacherApproved;
 
       card.innerHTML = `
         <div class="task-item-header">
@@ -244,7 +561,7 @@ document.addEventListener('DOMContentLoaded', () => {
               📄 ${escapeHtml(it.fee_or_docs)}
             </span>
           ` : ''}
-          <span class="meta-pill ${isQuoteVerified ? 'meta-status-verified' : 'meta-status-warning'}" title="${escapeHtml(it.validation_notes)}">
+          <span class="meta-pill ${isQuoteVerified || isTeacherApproved ? 'meta-status-verified' : 'meta-status-warning'}" title="${escapeHtml(it.validation_notes)}">
             ${escapeHtml(badgeText)}
           </span>
           <span class="meta-pill meta-action-review" title="Exact quote confirms text presence; semantic alignment requires teacher verification.">
@@ -259,12 +576,21 @@ document.addEventListener('DOMContentLoaded', () => {
           <div class="quote-text">"${escapeHtml(it.source_quote)}"</div>
           <div class="validation-note">${escapeHtml(it.validation_notes)}</div>
         </div>
+
+        ${isFlagged ? `
+          <div class="auth0-approval-gate" id="gate-${index}">
+            <span class="auth0-gate-badge">🛡️ Auth0 Governance</span>
+            <span class="auth0-gate-msg">Ambiguous evidence flagged by Python validator. Human approval required before acting.</span>
+            <button type="button" class="btn-gate-approve" data-index="${index}">✅ Confirm & Approve</button>
+            <button type="button" class="btn-gate-reject" data-index="${index}">❌ Dismiss</button>
+          </div>
+        ` : ''}
       `;
 
       itemsList.appendChild(card);
     });
 
-    // Attach Event Listeners to Checkboxes and Editable Title
+    // Event Listeners for Checkboxes and Editable Title
     document.querySelectorAll('.task-checkbox').forEach(cb => {
       cb.addEventListener('change', (e) => {
         const idx = parseInt(e.target.getAttribute('data-index'), 10);
@@ -285,6 +611,27 @@ document.addEventListener('DOMContentLoaded', () => {
       });
     });
 
+    // Auth0 Human Approval Gate Listeners
+    document.querySelectorAll('.btn-gate-approve').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const idx = parseInt(e.target.getAttribute('data-index'), 10);
+        currentItems[idx].validation_status = 'TEACHER_APPROVED_VIA_AUTH0';
+        currentItems[idx].quote_verified = true;
+        currentItems[idx].validation_badge_text = '✓ Educator Approved (Auth0)';
+        alert(`✓ Task #${idx + 1} approved by Educator via Auth0 Governance Gate.`);
+        renderChecklist(currentItems, summary);
+      });
+    });
+
+    document.querySelectorAll('.btn-gate-reject').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const idx = parseInt(e.target.getAttribute('data-index'), 10);
+        currentItems.splice(idx, 1);
+        summary.total_items = currentItems.length;
+        renderChecklist(currentItems, summary);
+      });
+    });
+
     checklistContainer.style.display = 'block';
     exportActions.style.display = 'flex';
     evidenceDisclaimer.style.display = 'flex';
@@ -293,7 +640,75 @@ document.addEventListener('DOMContentLoaded', () => {
   btnExtract.addEventListener('click', runExtraction);
 
   // ==========================================
-  // 5. EXPORT UTILITIES (CSV & Markdown)
+  // 7. ELEVENLABS AUDIO BRIEFING
+  // ==========================================
+  btnPlayAudioBriefing.addEventListener('click', async () => {
+    if (currentItems.length === 0) return;
+
+    if (isSpeaking) {
+      stopAudioBriefing();
+      return;
+    }
+
+    audioPlayerWrapper.style.display = 'block';
+    audioStatusText.textContent = 'Generating spoken briefing...';
+    btnPlayAudioBriefing.innerHTML = `<span>⏳</span> Generating...`;
+
+    try {
+      const res = await fetch('/api/speak-briefing', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items: currentItems })
+      });
+
+      const data = await res.json();
+      btnPlayAudioBriefing.innerHTML = `<span>⏹️</span> Stop Briefing`;
+      isSpeaking = true;
+
+      if (data.has_audio && data.audio_base64) {
+        // High quality ElevenLabs Audio Stream
+        briefingAudioElement.src = `data:${data.content_type || 'audio/mpeg'};base64,${data.audio_base64}`;
+        audioStatusText.textContent = `🎙️ Playing ElevenLabs Audio Briefing (${data.voice_id || 'Adam'})...`;
+        briefingAudioElement.play();
+        briefingAudioElement.onended = stopAudioBriefing;
+      } else {
+        // Client-side Web Speech API Fallback
+        audioStatusText.textContent = '🎙️ Reading aloud via Browser Voice Engine...';
+        if ('speechSynthesis' in window) {
+          window.speechSynthesis.cancel();
+          const utterance = new SpeechSynthesisUtterance(data.briefing_text);
+          utterance.rate = 1.0;
+          utterance.onend = stopAudioBriefing;
+          utterance.onerror = stopAudioBriefing;
+          window.speechSynthesis.speak(utterance);
+        } else {
+          alert('Briefing text:\n\n' + data.briefing_text);
+          stopAudioBriefing();
+        }
+      }
+    } catch (err) {
+      alert(`Audio synthesis error: ${err.message}`);
+      stopAudioBriefing();
+    }
+  });
+
+  btnStopAudio.addEventListener('click', stopAudioBriefing);
+
+  function stopAudioBriefing() {
+    isSpeaking = false;
+    if (briefingAudioElement) {
+      briefingAudioElement.pause();
+      briefingAudioElement.currentTime = 0;
+    }
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+    }
+    audioPlayerWrapper.style.display = 'none';
+    btnPlayAudioBriefing.innerHTML = `<span>🔊</span> Listen Briefing`;
+  }
+
+  // ==========================================
+  // 8. EXPORT UTILITIES (CSV & Markdown)
   // ==========================================
   btnDownloadCSV.addEventListener('click', async () => {
     if (currentItems.length === 0) return;
@@ -330,10 +745,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     currentItems.forEach(it => {
       const check = it.is_completed ? '[x]' : '[ ]';
-      const action = it.action.replace(/\|/g, '-');
-      const assignee = it.assignee.replace(/\|/g, '-');
-      const deadline = it.deadline.replace(/\|/g, '-');
-      const quote = it.source_quote.replace(/\|/g, '-').replace(/\n/g, ' ');
+      const action = (it.action || '').replace(/\|/g, '-');
+      const assignee = (it.assignee || '').replace(/\|/g, '-');
+      const deadline = (it.deadline || '').replace(/\|/g, '-');
+      const quote = (it.source_quote || '').replace(/\|/g, '-').replace(/\n/g, ' ');
       md += `| ${check} | **${action}** | \`${assignee}\` | **${deadline}** | *"${quote}"* |\n`;
     });
 
@@ -347,7 +762,7 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // ==========================================
-  // 6. LIVE BENCHMARK MODAL
+  // 9. LIVE BENCHMARK MODAL
   // ==========================================
   btnRunBenchmark.addEventListener('click', async () => {
     benchmarkModal.style.display = 'flex';

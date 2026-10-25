@@ -675,3 +675,79 @@ def test_api_extract_empty_fails():
     res = client.post("/api/extract", json={"text": "   "})
     assert res.status_code == 422  # Pydantic validation error (min_length=10)
 
+
+# ==============================================================================
+# 5. URL & PDF INGESTION TESTS (Browserbase & SSRF Safeguards)
+# ==============================================================================
+
+def test_url_safety_ssrf_blocking():
+    """Verifies that validate_url_safety blocks localhost, private subnets, and non-HTTP protocols."""
+    from app.browser_fetcher import validate_url_safety
+
+    assert validate_url_safety("http://localhost:8000")[0] is False
+    assert validate_url_safety("http://127.0.0.1/admin")[0] is False
+    assert validate_url_safety("http://192.168.1.1/secret")[0] is False
+    assert validate_url_safety("http://10.0.0.1/private")[0] is False
+    assert validate_url_safety("ftp://nu.ac.bd/notice.pdf")[0] is False
+    assert validate_url_safety("file:///etc/passwd")[0] is False
+
+    # Valid public university URLs
+    assert validate_url_safety("https://www.nu.ac.bd/uploads/notices/notice_2121.pdf")[0] is True
+    assert validate_url_safety("https://bou.ac.bd/NoticeBoard/Examination")[0] is True
+
+
+def test_api_fetch_notice_url_ssrf_rejected():
+    """Tests that the API rejects SSRF attacks with HTTP 400."""
+    res = client.post("/api/fetch-notice-url", json={"url": "http://127.0.0.1:8000/internal"})
+    assert res.status_code == 400
+    assert "SSRF prevention" in res.json()["detail"]
+
+
+# ==============================================================================
+# 6. ELEVENLABS AUDIO BRIEFING GENERATION TESTS
+# ==============================================================================
+
+def test_elevenlabs_spoken_briefing_generation():
+    """Tests the natural language briefing text generator."""
+    from app.audio import generate_spoken_briefing_text
+
+    items = [
+        {
+            "action": "Submit lab rosters",
+            "assignee": "Science Teachers",
+            "deadline": "October 30, 2026",
+            "fee_or_docs": "Safety Form",
+            "validation_status": "VERIFIED_QUOTE_GROUNDED"
+        }
+    ]
+    briefing = generate_spoken_briefing_text(items)
+    assert "1 next action item detected" in briefing
+    assert "Science Teachers must submit lab rosters" in briefing
+    assert "October 30, 2026" in briefing
+    assert "Safety Form" in briefing
+
+
+def test_api_speak_briefing_endpoint():
+    """Tests the /api/speak-briefing endpoint with automatic Web Speech fallback."""
+    payload = {
+        "items": [
+            {
+                "action": "Submit science project synopsis",
+                "assignee": "Grade 10 Teachers",
+                "deadline": "November 02, 2026",
+                "fee_or_docs": "$15 fee",
+                "validation_status": "VERIFIED_QUOTE_GROUNDED"
+            }
+        ],
+        "summary": "Annual science fair circular"
+    }
+    res = client.post("/api/speak-briefing", json=payload)
+    assert res.status_code == 200
+    data = res.json()
+    assert data["success"] is True
+    assert "briefing_text" in data
+    assert "Grade 10 Teachers" in data["briefing_text"]
+    assert "November 02, 2026" in data["briefing_text"]
+    assert "engine" in data
+
+

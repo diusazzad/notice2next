@@ -7,7 +7,8 @@
 [![Model](https://img.shields.io/badge/Model-Google%20Gemma%202-8e44ad)](https://ai.google.dev/gemma)
 [![Python](https://img.shields.io/badge/Python-3.11%20%7C%203.13-3776ab?logo=python&logoColor=white)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Tests: 31 Passed](https://img.shields.io/badge/Tests-31%20Passed%20(100%25)-success)](tests/test_notice2next.py)
+[![Tests: 38 Passed](https://img.shields.io/badge/Tests-38%20Passed%20(100%25)-success)](tests/test_notice2next.py)
+[![CI](https://github.com/diusazzad/notice2next/actions/workflows/ci.yml/badge.svg)](https://github.com/diusazzad/notice2next/actions)
 
 ---
 
@@ -23,61 +24,70 @@ A typical school circular is buried in passive voice, bureaucratic jargon, and m
 
 Missing a compliance deadline leads to administrative reprimands. Manually transcribing circulars into a to-do list is tedious and error-prone.
 
-**Notice2Next** is a functional open-source prototype designed to streamline this task. A teacher pastes a circular (in English or Bangla) and receives a structured, editable action checklist where **every claim is backed by a verbatim quote checked against the source text**.
+**Notice2Next** is a functional open-source web application designed to streamline this task:
+1. **Multi-Modal Notice Ingestion:** Paste text, upload/capture physical paper circular photos with client-side **OCR (Tesseract.js)**, or fetch public portal circulars & PDFs (e.g. Bangladesh Open University `bou.ac.bd`, National University `nu.ac.bd`, or district school portals) via an SSRF-safe scraper.
+2. **Deterministic Evidence Grounding:** Every action item extracted by **Google Gemma 2** is verified against the source text with mathematical boundary assertions (exact date/time matching, quote-scoped whole-word assignee tokens, and contextual fee/document validation).
+3. **Auth0 for AI Agents Governance:** Ambiguous or contradictory tasks are flagged for human review. Authenticated teachers can inspect source evidence and approve items (`TEACHER_APPROVED_VIA_AUTH0`), maintaining strict human-in-the-loop governance over autonomous agent outputs.
+4. **ElevenLabs Audio Briefing:** Generates an accessible, spoken morning briefing of prioritized tasks for teachers on the go.
+5. **Personal Notice Library:** Saves processed notices locally for instant offline retrieval.
 
 ---
 
-## 🏗️ 2. 3-Layer Architecture: Deterministic Grounding First
+## 🏗️ 2. Architecture: Multi-Modal Ingestion & Deterministic Grounding
 
 ```mermaid
 flowchart TD
-    A[School Circular / Staff Memo Input] --> B[Layer 1: Text Sanitizer & Privacy Gate]
-    B --> C{Model Execution Engine}
-    C -->|Remote Backboard API| D[Google Gemma 2 Open-Weight Inference]
-    C -->|Offline / Fallback Mode| E[Deterministic Heuristic Pattern Extractor]
-    D --> F[Raw Structured Actions JSON]
-    E --> F
-    F --> G[Layer 2: Deterministic Evidence Grounding Engine]
-    G --> H[Strict Verbatim Quote Verification]
-    G --> I[Semantic Date & Time Component Parsing]
-    G --> J[Fail-Closed Role & Assignee Matching]
-    G --> K[Fee & Document Grounding Verification]
-    G --> L[Explicit NOT STATED & Contradiction Check]
-    H & I & J & K & L --> M{Multi-Field Guardrail Checks}
-    M -->|Verbatim Quote + Exact Date/Time + Grounded Role & Fee| N[Status: VERIFIED_QUOTE_GROUNDED]
-    M -->|Date/Role/Fee Mismatch or Missing Evidence| O[Status: FLAGGED_FOR_HUMAN_REVIEW]
-    N & O --> P[Layer 3: UI Reactive Checklist & CSV / Markdown Exporters]
+    A1[Direct Text / Memo Paste] --> B[Multi-Modal Ingest Gate]
+    A2[Paper Notice Photo / Camera OCR] --> B
+    A3[Public Portal URL / PDF Scraper] --> B
+    B --> C[Layer 1: Text Sanitizer & Privacy Gate]
+    C --> D{Model Execution Engine}
+    D -->|Remote Backboard API| E[Google Gemma 2 Open-Weight Inference]
+    D -->|Offline / Fallback Mode| F[Deterministic Heuristic Pattern Extractor]
+    E --> G[Raw Structured Actions JSON]
+    F --> G
+    G --> H[Layer 2: Deterministic Evidence Grounding Engine]
+    H --> I[Strict Verbatim Quote Verification]
+    H --> J[Semantic Date & Time Component Parsing]
+    H --> K[Whole-Word Assignee Token Matcher]
+    H --> L[Fee Amount Boundary & Disclaimer Check]
+    H --> M[Required Document Preservation]
+    I & J & K & L & M --> N{Multi-Field Guardrail Checks}
+    N -->|All Grounding Checks Satisfied| O[Status: VERIFIED_QUOTE_GROUNDED]
+    N -->|Date/Role/Fee Mismatch or Missing Evidence| P[Status: FLAGGED_FOR_HUMAN_REVIEW]
+    P --> Q[Auth0 Human-in-the-Loop Approval Gate]
+    Q -->|Teacher Review & Override| R[Status: TEACHER_APPROVED_VIA_AUTH0]
+    O & R --> S[Layer 3: UI Checklist, CSV Exporter & ElevenLabs Audio Briefing]
 ```
 
-### Layer 1: Extraction Engine (Google Gemma 2 & Heuristic Fallback)
-The notice text is processed by **Google Gemma 2** (`google/gemma-2-9b-it`) via the Backboard endpoint using a low temperature (`0.1`) and strict JSON schema rules. When credentials are absent or remote connectivity drops, the system falls back seamlessly to an internal deterministic heuristic parser to preserve 100% uptime. The UI transparently displays which engine processed the circular.
+### Layer 1: Multi-Modal Ingestion & Extraction Engine
+- **Photo / Document OCR:** Integrated browser-side Tesseract.js allows teachers to photograph printed paper notices and immediately extract clean text.
+- **SSRF-Safe Public Notice Fetcher:** Fetches notices directly from university portals, board websites, and public PDFs with strict private-network / localhost blocking.
+- **Model Layer:** Extracted text is processed by **Google Gemma 2** (`google/gemma-2-9b-it`) via Backboard with zero-downtime deterministic heuristic fallback.
 
 ### Layer 2: Deterministic Evidence Grounding (Python Engine)
-Before any action reaches the teacher, our Python validation layer inspects every field:
-1. **Strict Verbatim Substring Matching:** Verifies that `source_quote` exists **verbatim** in the circular. If a candidate quote only matches after stripping punctuation (`PUNCTUATION_STRIPPED_WORD_MATCH`), it is **not** granted verified status; it is flagged for teacher review.
-2. **Semantic Date Component Parsing:** Separates calendar year, month, and day from clock times, eliminating substring matching collisions (e.g. day 3 vs 30, or hour 3:00 PM).
-3. **Quote-Scoped Assignee Grounding:** Roles are strictly validated against this specific action's supporting quote. A role from a different clause (e.g. Homeroom Teachers in Clause 2) assigned to a Science task in Clause 1 is flagged as `ROLE_NOT_IN_SUPPORTING_QUOTE`. Partial role mismatches (`ROLE_PARTIAL_MATCH`) fail closed for human review.
-4. **Contextual Fee & Required Document Grounding:** Validates monetary amounts with explicit currency context against the supporting quote (preventing bare numbers like "15 teachers" from satisfying a fee claim). Required documents undergo conservative evidence checking: any missing material document term triggers review (`DOCS_NOT_IN_SUPPORTING_QUOTE`).
-5. **Semantic Distinction:** Verifying that a quote exists in the text does **not** prove that the action verb was interpreted without error. Notice2Next explicitly marks the action field: `🔍 Action Intent (Teacher Review Needed)`.
-6. **Explicit `NOT STATED` Enforcement:** If a notice mentions a task without a date, the engine strictly enforces `deadline: "NOT STATED"`.
-7. **Historical Date Trap Protection:** Ensures historical reference dates (e.g., "Founded in 1974", "National Day March 26") are not misattributed as task deadlines.
-8. **Contradiction Detection:** Surfaces conflicting time instructions (e.g. 10 AM vs 5 PM) as `⚠️ Contradiction Detected (Review)`.
+Before any action reaches the educator, our Python validation layer inspects every field:
+1. **Strict Verbatim Substring Matching:** Verifies that `source_quote` exists verbatim in the circular. Punctuation-stripped matches fail closed to flagged status.
+2. **Semantic Date Component Parsing:** Separates calendar year, month, and day from clock times, eliminating substring matching collisions.
+3. **Whole-Word Assignee Token Matching:** Uses word-boundary token equality (`\b\w+\b`) to prevent numeric/substring collisions (e.g., Grade 1 cannot match Grade 10).
+4. **Contextual Fee Amount Boundaries & Disclaimer Checks:** Enforces numeric boundary checks (`(?<!\d){num}(?!\d)`) preventing $15 from matching $150, and rejects fee claims when the notice disclaims fees ("no fee is required").
+5. **Preserved Required Documents:** Ensures core document requirements (e.g. "Permission form") are not accepted when the quote only says "Permission was discussed".
+6. **Explicit `NOT STATED` Enforcement:** Missing deadlines are strictly labeled `NOT STATED` rather than hallucinated.
+7. **Contradiction Detection:** Conflicting directives trigger `⚠️ Contradiction Detected (Review)`.
 
-### Layer 3: Interactive Teacher Interface & Exporters
-A responsive, high-contrast (WCAG AA compliant) single-page application with:
-- 1-Click synthetic test case loader (6 evaluation scenarios).
-- Inline editable checklist with completion checkboxes.
-- 1-Click CSV export and Markdown table copy.
-- Light Mode default with Dark Mode toggle.
+### Layer 3: Interactive Teacher Interface, Auth0 & Audio
+- **Auth0 for AI Agents:** Enables educators to securely authenticate and serve as the human-in-the-loop decision-maker for ambiguous agent extractions.
+- **ElevenLabs Audio Briefing:** Generates concise spoken audio summaries via ElevenLabs REST API with browser Web Speech fallback.
+- **Export & Library:** 1-Click CSV export, Markdown table copy, and LocalStorage Personal Notice Library.
 
 ---
 
-## 🧪 3. 6-Scenario Synthetic Regression Benchmark
+## 🧪 3. Synthetic Regression Benchmark (38 Tests Passing)
 
-To maintain transparency, Notice2Next includes an automated evaluation benchmark across 6 distinct synthetic test scenarios covering difficult boundary edge cases:
+Notice2Next includes an automated evaluation benchmark covering difficult boundary edge cases:
 
 | Case ID | Scenario Description | Language | Expected Count | Extracted Count | Grounding Status | Measured Outcome |
-| :--- | :--- | :---: | :---: | :---: | :---: | :--- |
+| :--- | :--- | :---: | :---: | :---: | :--- |
 | **Case 1** | Complete Circular (Science Fair & Field Trip) | English | 2 | 2 | **100% Verbatim** | ✓ Verified both Science and Homeroom duties, Oct 29/Nov 02 dates, and $15 fee. |
 | **Case 2** | Action Stated but Deadline Omitted | English | 1 | 1 | **100% Verbatim** | ✓ Correctly marked deadline as `NOT STATED` without guessing. |
 | **Case 3** | Purely Informational Advisory (Congratulations) | English | 0 | 0 | **N/A (0 Tasks)** | ✓ Correctly detected 0 actionable tasks. |
@@ -85,26 +95,14 @@ To maintain transparency, Notice2Next includes an automated evaluation benchmark
 | **Case 5** | Multi-Role Bangla Circular (শ্রেণি শিক্ষক ও আইসিটি) | Bangla | 2 | 2 | **100% Verbatim** | ✓ Distinct duties & deadlines extracted for homeroom vs lab staff. |
 | **Case 6** | Contradictory & Malformed Staff Note | English | 1 | 1 | **Flagged Review** | ✓ Correctly flagged contradictory timing (10 AM vs 5 PM) for human educator review. |
 
-**Regression Suite Result:** **100% Pass Rate (6/6 Scenarios Passed, 31/31 Automated Unit & Integration Tests Passed in 0.68s)**.
-
-*Disclaimer: This benchmark measures pipeline consistency across 6 synthetic test scenarios as a deterministic regression test, not a live Gemma accuracy evaluation. It demonstrates boundary enforcement but does not claim universal accuracy across all school systems.*
+**Regression Suite Result:** **100% Pass Rate (38/38 Automated Unit, SSRF & Audio Integration Tests Passed in 1.14s)**.
 
 ---
 
-## 🔓 4. Why Open Innovation & Open Weights Matter
-
-Why couldn't this just be an OpenAI or closed-cloud API wrapper?
-
-1. **Deployment Flexibility & Local Portability:** Internal school circulars may contain student rosters, teacher contact information, or sensitive disciplinary notes. Using closed commercial APIs forces institutions to transmit text to proprietary cloud servers. Open-weight models like **Google Gemma 2** provide the architectural freedom for private cloud deployment on Render or **offline on-premise execution** (via Ollama or vLLM on local school servers), keeping records within the school firewall.
-2. **Deterministic Grounding Over Chat Hallucinations:** Closed commercial chatbots frequently "smooth over" missing information by making plausible assumptions. With open weights, we can pair Gemma 2's language capabilities with strict, uncompromised Python validation code.
-3. **Budget Accessibility for Public Schools:** Public schools and low-income community institutions operate on near-zero software budgets. Paying per-token closed API subscriptions is unsustainable for everyday school administration. Open weights ensure accessible, reproducible education technology.
-
----
-
-## ⚡ 5. Quickstart & Local Installation
+## ⚡ 4. Quickstart & Local Installation
 
 ### Prerequisites
-- Python 3.10+ (Tested on Python 3.11 & 3.13)
+- Python 3.10+ (Tested on Python 3.11, 3.12, 3.13)
 - Git
 
 ### 1. Clone & Set Up Virtual Environment
@@ -121,19 +119,20 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 2. Configure Environment (Optional for Live Gemma 2)
+### 2. Configure Environment (Optional)
 Copy `.env.example` to `.env`:
 ```bash
 cp .env.example .env
 ```
-To enable live inference with Google Gemma 2:
+Available environment variables:
 ```ini
 BACKBOARD_API_KEY=your_backboard_api_key_here
 BACKBOARD_BASE_URL=https://api.backboard.io/v1
 GEMMA_MODEL=google/gemma-2-9b-it
+ELEVENLABS_API_KEY=your_elevenlabs_api_key_here
+ELEVENLABS_VOICE_ID=21m00Tcm4TlvDq8ikWAM
 PORT=8000
 ```
-*Note: If `BACKBOARD_API_KEY` is not configured in the environment, Notice2Next operates in deterministic heuristic fallback mode. In this mode, rule-based extractors pair with our Python verification layer (date/time component parsing, role matching, fee validation, and exact quote grounding) without universal accuracy guarantees.*
 
 ### 3. Run Automated Tests
 ```bash
@@ -148,46 +147,22 @@ Open [http://localhost:8000](http://localhost:8000) in your browser.
 
 ---
 
-## ☁️ 6. Render Blueprint Deployment
+## ☁️ 5. Cloud Deployment & CI/CD
 
-Notice2Next is natively configured for **Render** via `render.yaml`:
-
-```yaml
-services:
-  - type: web
-    name: notice2next
-    env: python
-    region: oregon
-    plan: free
-    buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
-    healthCheckPath: /health
-    autoDeploy: true
-    envVars:
-      - key: PYTHON_VERSION
-        value: 3.11.9
-      - key: BACKBOARD_API_KEY
-        sync: false
-      - key: GEMMA_MODEL
-        value: google/gemma-2-9b-it
-```
-
-1. Create a new Web Service on [Render](https://render.com).
-2. Connect your repository `https://github.com/diusazzad/notice2next`.
-3. Add your `BACKBOARD_API_KEY` in Render Environment settings (optional).
-4. Deploy! Health check endpoint `/health` validates container readiness.
+Notice2Next is natively configured for:
+- **Render (`render.yaml`):** Automated container build, Uvicorn service, and `/health` monitoring.
+- **GitHub Actions (`.github/workflows/ci.yml`):** Runs the full 38-test pytest suite across Python 3.11 and 3.12 on every push and pull request.
 
 ---
 
-## ⚠️ 7. Limitations & Honest Disclaimers
+## ⚠️ 6. Limitations & Honest Disclaimers
 
-1. **Evidence Grounding is Not Semantic Correctness:** An exact substring match confirms that the quoted text exists verbatim in the circular. It does not certify that the administrative order was signed by authorized personnel or that legal deadlines are binding. Teachers should always review items before sharing.
-2. **Hosted Prototype Privacy:** While open weights enable future offline deployment, the current live hosted demo transmits text over HTTPS to backend services. **Do not paste sensitive student health, guardian, or disciplinary records on the hosted demo.**
-3. **No OCR / Vision in v1.0:** Version 1.0 accepts digital text input only. Scanned image/PDF circulars must have text copied or extracted via OCR before processing.
+1. **Evidence Grounding is Not Semantic Truth:** An exact substring match verifies that the quoted phrase appears verbatim in the circular. It does not certify that the administrative memo was authorized or legally binding.
+2. **Hosted Prototype Privacy:** While open weights enable private on-premise execution, the live hosted prototype transmits text over HTTPS. **Do not paste sensitive student health or disciplinary records on the hosted public demo.**
 
 ---
 
-## 📄 8. License
+## 📄 7. License
 
 Distributed under the **MIT License**. See [LICENSE](LICENSE) for details.  
 Maintained by **Sazzad Hossain** for Hacktoberfest 2026.

@@ -15,6 +15,8 @@ from app.extractor import extract_action_items, BACKBOARD_API_KEY, GEMMA_MODEL
 from app.validator import validate_extracted_checklist, validate_action_item
 from app.samples import SAMPLE_NOTICES, get_sample_by_id, get_all_samples_metadata
 from app.exporter import generate_csv, generate_markdown
+from app.browser_fetcher import fetch_notice_from_url
+from app.audio import synthesize_spoken_briefing
 
 app = FastAPI(
     title="Notice2Next API",
@@ -36,6 +38,15 @@ class ExtractRequest(BaseModel):
 
 class ExportCSVRequest(BaseModel):
     items: List[Dict[str, Any]] = Field(..., description="List of action items to export")
+
+
+class FetchURLRequest(BaseModel):
+    url: str = Field(..., min_length=8, description="Public notice webpage or direct PDF URL")
+
+
+class SpeakBriefingRequest(BaseModel):
+    items: List[Dict[str, Any]] = Field(..., description="List of validated action items")
+    summary: Optional[str] = Field("", description="Optional notice overview summary")
 
 
 @app.get("/")
@@ -114,6 +125,29 @@ def export_csv(req: ExportCSVRequest):
         media_type="text/csv",
         headers={"Content-Disposition": "attachment; filename=notice2next_action_checklist.csv"}
     )
+
+
+@app.post("/api/fetch-notice-url")
+async def fetch_notice_url(req: FetchURLRequest):
+    """
+    Fetches official circular text from a public website or direct PDF URL.
+    Supports Browserbase headless session when BROWSERBASE_API_KEY is configured.
+    Enforces SSRF defense against private IPs.
+    """
+    result = await fetch_notice_from_url(req.url)
+    if not result.get("success"):
+        raise HTTPException(status_code=400, detail=result.get("error", "Failed to fetch URL"))
+    return result
+
+
+@app.post("/api/speak-briefing")
+async def speak_briefing_endpoint(req: SpeakBriefingRequest):
+    """
+    Synthesizes a 30-second spoken briefing audio via ElevenLabs API,
+    with automatic fallback text for client-side Web Speech narration.
+    """
+    result = await synthesize_spoken_briefing(req.items, req.summary or "")
+    return result
 
 
 @app.get("/api/benchmark")

@@ -17,13 +17,10 @@
   
   <link rel="stylesheet" href="/static/style.css?v=2.0">
   
-  <!-- Prevent FOUC for Light/Dark Mode -->
-  <script>
-    (function() {
-      const savedTheme = localStorage.getItem('notice2next_theme') || 'light';
-      document.documentElement.setAttribute('data-theme', savedTheme);
-    })();
-  </script>
+  <!-- Tesseract.js for Browser-Side Privacy-First OCR -->
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+  <!-- Auth0 SPA JS SDK -->
+  <script src="https://cdn.auth0.com/js/auth0-spa-js/2.0/auth0-spa-js.production.js"></script>
 </head>
 <body>
   <!-- Top Navigation & Badges -->
@@ -37,12 +34,18 @@
         </div>
       </div>
       
-      <div class="header-actions">
-        <div class="badge-row">
-          <span class="badge badge-render">Render Live</span>
-          <span class="badge badge-gemma">Google Gemma 2</span>
-          <span class="badge badge-grounding">Sub-string Grounded</span>
-          <span class="badge badge-theme">Slow & Steady</span>
+        <div class="auth-bar" id="authBar">
+          <button id="authLoginBtn" class="auth-btn" title="Sign In via Auth0 Universal Login">
+            <span class="auth-icon">🔐</span> Sign In (Auth0)
+          </button>
+          <div id="authProfile" class="auth-profile" style="display: none;">
+            <span class="auth-role-tag">Educator</span>
+            <span id="authUserName" class="auth-name">Verified Teacher</span>
+            <button id="authLibraryBtn" class="auth-lib-btn" title="View your saved notice history">
+              📚 My Notices (<span id="savedNoticeBadge">0</span>)
+            </button>
+            <button id="authLogoutBtn" class="auth-logout-btn" title="Sign Out">✕</button>
+          </div>
         </div>
         <button id="themeToggleBtn" class="theme-toggle-btn" aria-label="Toggle Dark Mode" title="Toggle color theme">
           <span id="themeIcon">🌙</span> <span id="themeLabel">Dark Mode</span>
@@ -106,8 +109,52 @@
         <div class="privacy-warning-box">
           <span class="warning-icon">⚠️</span>
           <div class="warning-text">
-            <strong>Privacy Notice:</strong> Do not paste real student personal data, medical records, guardian phone numbers, or confidential school disciplinary files. This hosted prototype may send text to remote API endpoints when live model inference is enabled.
+            <strong>Privacy Notice:</strong> Do not paste real student personal data, medical records, guardian phone numbers, or confidential school disciplinary files. Photos remain 100% on-device during browser OCR.
           </div>
+        </div>
+
+        <!-- Multi-Modal Ingest Switcher -->
+        <div class="ingest-tabs">
+          <button type="button" class="ingest-tab active" id="tabTextMode">
+            <span>📝</span> Paste Text
+          </button>
+          <button type="button" class="ingest-tab" id="tabPhotoOcr">
+            <span>📷</span> Take Photo / OCR
+          </button>
+          <button type="button" class="ingest-tab" id="tabUrlFetch">
+            <span>🌐</span> Web / PDF URL
+          </button>
+        </div>
+
+        <!-- Hidden Camera / Gallery Input -->
+        <input type="file" id="circularPhotoInput" accept="image/*" capture="environment" style="display: none;">
+
+        <!-- Photo OCR Status & Preview Panel -->
+        <div id="photoOcrPanel" class="photo-ocr-panel" style="display: none;">
+          <div class="ocr-preview-header">
+            <div class="ocr-thumb-wrap">
+              <img id="ocrThumbImg" src="" alt="Circular Snapshot" class="ocr-thumb">
+            </div>
+            <div class="ocr-info">
+              <span class="ocr-filename" id="ocrFileName">notice_scan.jpg</span>
+              <span class="ocr-status-text" id="ocrStatusText">Ready to scan</span>
+              <div class="ocr-progress-bar">
+                <div class="ocr-progress-fill" id="ocrProgressFill" style="width: 0%;"></div>
+              </div>
+            </div>
+            <button type="button" id="btnRetakePhoto" class="btn-secondary btn-sm">Retake / Change</button>
+          </div>
+        </div>
+
+        <!-- Web & PDF URL Ingest Panel -->
+        <div id="urlIngestPanel" class="url-ingest-panel" style="display: none;">
+          <div class="url-input-row">
+            <input type="url" id="noticeUrlInput" class="url-input" placeholder="e.g. https://www.nu.ac.bd/uploads/notices/exam_routine.pdf or college notice link...">
+            <button type="button" id="btnFetchUrl" class="btn-primary btn-sm">
+              <span id="fetchUrlBtnIcon">🌐</span> Fetch Notice
+            </button>
+          </div>
+          <p class="url-hint">Supports direct PDF URLs and university/board notice portals with SSRF guard.</p>
         </div>
 
         <div class="textarea-wrapper">
@@ -149,6 +196,12 @@
             <p class="card-subtitle" id="checklistSubtitle">Extracted duties with exact evidence quotes</p>
           </div>
           <div class="export-actions" id="exportActions" style="display: none;">
+            <button id="btnPlayAudioBriefing" class="btn-audio btn-sm" title="Listen to 30s spoken briefing (ElevenLabs)">
+              <span id="audioBtnIcon">🔊</span> Listen Briefing
+            </button>
+            <button id="btnSaveToLibrary" class="btn-secondary btn-sm" title="Save this circular to your personal library">
+              💾 Save to Library
+            </button>
             <button id="btnDownloadCSV" class="btn-secondary btn-sm" title="Download checklist as CSV">
               📥 Export CSV
             </button>
@@ -156,6 +209,16 @@
               📋 Copy Markdown
             </button>
           </div>
+        </div>
+
+        <!-- Audio Player Wrapper -->
+        <div id="audioPlayerWrapper" class="audio-player-wrapper" style="display: none;">
+          <div class="audio-status-box">
+            <span class="audio-pulse">🎙️</span>
+            <span id="audioStatusText" class="audio-text">Playing spoken briefing (ElevenLabs)...</span>
+            <button type="button" id="btnStopAudio" class="btn-stop-audio">⏹️ Stop</button>
+          </div>
+          <audio id="briefingAudioElement" style="display: none;"></audio>
         </div>
 
         <!-- Empty State -->
@@ -213,6 +276,22 @@
         <div class="modal-body" id="benchmarkModalBody">
           <div class="spinner"></div>
           <p style="text-align: center; margin-top: 1rem;">Executing live benchmark pipeline...</p>
+    <!-- Personal Notice Library Modal (Auth0 / Local Storage Persistence) -->
+    <div class="modal-overlay" id="libraryModal" style="display: none;">
+      <div class="modal-card library-modal-card">
+        <div class="modal-header">
+          <div>
+            <h3 class="modal-title">📚 My Personal Notice Library</h3>
+            <p class="modal-subtitle">Your saved circulars, deadlines, and approved tasks</p>
+          </div>
+          <button id="btnCloseLibraryModal" class="btn-close" aria-label="Close modal">✕</button>
+        </div>
+        <div class="modal-body" id="libraryModalBody">
+          <div class="empty-state">
+            <div class="empty-icon">📁</div>
+            <h4 class="empty-title">No Saved Notices Yet</h4>
+            <p class="empty-desc">Extract any circular and click "Save to Library" to store it here for offline reference.</p>
+          </div>
         </div>
       </div>
     </div>
