@@ -751,3 +751,45 @@ def test_api_speak_briefing_endpoint():
     assert "engine" in data
 
 
+# ==============================================================================
+# 7. OCR CLEANUP & VERIFIED SAMPLE NOTICE TESTS
+# ==============================================================================
+
+def test_clean_ocr_text_deterministic():
+    """Tests that hyphenated broken lines and fragmented sentences are repaired."""
+    from app.extractor import clean_ocr_text_deterministic
+
+    raw_noisy_ocr = (
+        "It is hereby notified that all Grade 9 sci-\n"
+        "ence teachers must submit final student ro-\n"
+        "sters by October 29 at 4 : 00 PM.\n"
+        "Please collect transport fee of $ 15 per student."
+    )
+    cleaned = clean_ocr_text_deterministic(raw_noisy_ocr)
+    assert "science teachers" in cleaned
+    assert "student rosters" in cleaned
+    assert "4:00 PM" in cleaned
+    assert "$15" in cleaned
+
+
+def test_api_clean_ocr_text_endpoint():
+    """Tests the /api/clean-ocr-text endpoint."""
+    raw_ocr = "Homeroom teachers must submit forms by Friday 3 : 00 PM."
+    res = client.post("/api/clean-ocr-text", json={"raw_text": raw_ocr})
+    assert res.status_code == 200
+    data = res.json()
+    assert "cleaned_text" in data
+    assert "3:00 PM" in data["cleaned_text"]
+    assert "engine" in data
+
+
+def test_api_sample_public_notice_endpoint():
+    """Tests the /api/sample-public-notice endpoint returns valid HTML circular."""
+    res = client.get("/api/sample-public-notice")
+    assert res.status_code == 200
+    assert "BOARD OF INTERMEDIATE & SECONDARY EDUCATION" in res.text
+    assert "November 03, 2026" in res.text
+    assert "$25 per candidate" in res.text
+
+
+

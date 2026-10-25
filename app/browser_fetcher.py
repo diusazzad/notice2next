@@ -75,6 +75,31 @@ async def fetch_notice_from_url(url_str: str) -> Dict[str, Any]:
     Uses Browserbase Session if BROWSERBASE_API_KEY is available;
     otherwise falls back to Direct Verified Web/PDF Loader.
     """
+    url_clean = url_str.strip()
+
+    # Fast-path for verified built-in sample circulars (works offline, locally, and on cloud)
+    try:
+        parsed_sample = urllib.parse.urlparse(url_clean)
+        if parsed_sample.path.rstrip("/") == "/api/sample-public-notice":
+            sample_text = (
+                "BOARD OF INTERMEDIATE & SECONDARY EDUCATION\n"
+                "ACADEMIC DIRECTIVE (REF: BISE-ACAD-2026-904)\n\n"
+                "It is hereby notified for the information of all Heads of Institutions, Grade 10 Homeroom Teachers, and Examination Coordinators that the final student candidate nomination lists for the upcoming 2027 Secondary Certificate Examinations must be submitted to the Board Controller Office by Tuesday, November 03, 2026 at 3:30 PM.\n\n"
+                "Furthermore, all Accounts Officers and Class In-Charges must collect the mandatory board verification fee of $25 per candidate and deposit the treasury receipt slip before the deadline. Homeroom Teachers must verify and attach the student attendance declaration form with each submission packet.\n\n"
+                "By order of the Board Chairman,\nDr. A. K. Azad, Controller of Examinations"
+            )
+            return {
+                "success": True,
+                "url": url_str,
+                "title": "Official Academic Directive (Board Notice)",
+                "text": sample_text,
+                "characters": len(sample_text),
+                "source_type": "official_sample_memo",
+                "engine": "Verified Academic Board Portal"
+            }
+    except Exception:
+        pass
+
     is_safe, error_msg = validate_url_safety(url_str)
     if not is_safe:
         return {
@@ -112,9 +137,16 @@ async def fetch_notice_from_url(url_str: str) -> Dict[str, Any]:
         async with httpx.AsyncClient(timeout=12.0, follow_redirects=True, headers=headers) as client:
             response = await client.get(url_str)
             if response.status_code != 200:
+                if response.status_code == 404:
+                    err_detail = "Remote website returned 404 (Not Found). The requested circular URL or PDF does not exist or has moved. Please verify the URL or try our 1-click verified sample notice link."
+                elif response.status_code == 403:
+                    err_detail = "Remote website returned 403 (Forbidden). The institution server blocks external automated access. Please copy and paste the notice text directly."
+                else:
+                    err_detail = f"Server returned status {response.status_code} {response.reason_phrase}"
+
                 return {
                     "success": False,
-                    "error": f"Server returned status {response.status_code} {response.reason_phrase}",
+                    "error": err_detail,
                     "url": url_str
                 }
 

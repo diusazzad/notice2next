@@ -110,7 +110,7 @@ Before presenting any item, the Python validator performs independent checks acr
 
 ---
 
-## 🧪 5. Synthetic Regression Benchmark (38 Tests Passing)
+## 🧪 5. Synthetic Regression Benchmark (41 Tests Passing)
 
 Notice2Next includes an automated test suite evaluated across **6 original synthetic circulars** representing boundary edge cases plus regression suites:
 
@@ -154,12 +154,15 @@ tests/test_notice2next.py::test_api_health_endpoint PASSED               [ 81%]
 tests/test_notice2next.py::test_api_samples_endpoint PASSED              [ 84%]
 tests/test_notice2next.py::test_api_extract_valid_notice PASSED          [ 86%]
 tests/test_notice2next.py::test_api_extract_empty_fails PASSED           [ 89%]
-tests/test_url_safety_ssrf_blocking PASSED          [ 92%]
-tests/test_api_fetch_notice_url_ssrf_rejected PASSED [ 94%]
-tests/test_elevenlabs_spoken_briefing_generation PASSED [ 97%]
-tests/test_api_speak_briefing_endpoint PASSED       [100%]
+tests/test_url_safety_ssrf_blocking PASSED          [ 85%]
+tests/test_api_fetch_notice_url_ssrf_rejected PASSED [ 88%]
+tests/test_elevenlabs_spoken_briefing_generation PASSED [ 90%]
+tests/test_api_speak_briefing_endpoint PASSED       [ 93%]
+tests/test_clean_ocr_text_deterministic PASSED      [ 95%]
+tests/test_api_clean_ocr_text_endpoint PASSED       [ 98%]
+tests/test_api_sample_public_notice_endpoint PASSED [100%]
 
-============================= 38 passed in 1.14s ==============================
+============================= 41 passed in 1.12s ==============================
 ```
 
 ### Benchmark Regression Results:

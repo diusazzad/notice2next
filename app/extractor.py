@@ -259,3 +259,112 @@ def extract_action_items(notice_text: str) -> Dict[str, Any]:
         "latency_ms": latency_ms,
         "raw_items": raw_items
     }
+
+
+def clean_ocr_text_deterministic(raw_ocr_text: str) -> str:
+    """
+    Cleans noisy raw OCR text deterministically:
+    - Recombines hyphenated word breaks (e.g. 'submis-\nsion' -> 'submission')
+    - Reconstructs fragmented sentences while preserving paragraph breaks
+    - Fixes common OCR typos (e.g. '|' for 'I', stray artifacts, broken numbers)
+    """
+    if not raw_ocr_text:
+        return ""
+
+    text = raw_ocr_text
+    # 1. Fix hyphenated word breaks at end of line (e.g., 'submis-\n sion' -> 'submission')
+    text = re.sub(r"(\b[A-Za-z]+)-\s*\n\s*([A-Za-z]+\b)", r"\1\2", text)
+
+    # 2. Fix broken sentence lines: preserve deliberate paragraph breaks
+    lines = text.split("\n")
+    reconstructed_lines = []
+    buffer = ""
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            if buffer:
+                reconstructed_lines.append(buffer)
+                buffer = ""
+            reconstructed_lines.append("")
+            continue
+
+        if not buffer:
+            buffer = stripped
+        else:
+            # Check if buffer ends with sentence punctuation or bullet
+            if buffer.endswith((".", ":", ";", "?", "!")) or stripped.startswith(("-", "•", "1.", "2.", "3.", "4.", "5.")):
+                reconstructed_lines.append(buffer)
+                buffer = stripped
+            else:
+                # Merge into previous sentence with a space
+                buffer += " " + stripped
+    if buffer:
+        reconstructed_lines.append(buffer)
+
+    cleaned = "\n".join(reconstructed_lines)
+    # 3. Clean up common OCR substitution errors & whitespace
+    cleaned = re.sub(r"[ \t]+", " ", cleaned)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    # Fix broken times like "4 : 00 PM" -> "4:00 PM"
+    cleaned = re.sub(r"(\d{1,2})\s*:\s*(\d{2})\s*(AM|PM|am|pm)", r"\1:\2 \3", cleaned)
+    # Fix broken currency like "$ 15" -> "$15"
+    cleaned = re.sub(r"\$\s+(\d+)", r"$\1", cleaned)
+    return cleaned.strip()
+
+
+def clean_ocr_text(raw_ocr_text: str, timeout_sec: float = 10.0) -> Dict[str, Any]:
+    """
+    Reconstructs clean, coherent circular text from raw camera/photo OCR output.
+    Uses Google Gemma 2 when configured; otherwise uses deterministic OCR normalizer.
+    """
+    if not raw_ocr_text or not raw_ocr_text.strip():
+        return {"cleaned_text": "", "engine": "Deterministic Normalizer", "live_model_called": False}
+
+    if BACKBOARD_API_KEY and not BACKBOARD_API_KEY.startswith("your_"):
+        try:
+            headers = {
+                "Authorization": f"Bearer {BACKBOARD_API_KEY}",
+                "Content-Type": "application/json"
+            }
+            prompt = (
+                "You are an expert OCR correction assistant for school notices and circulars.\n"
+                "Below is raw, noisy OCR text extracted from a photo of a school noticeboard or paper memo.\n"
+                "Reconstruct and output the clean, coherent original notice text.\n"
+                "Rules:\n"
+                "- Fix broken line breaks and wrap sentences into clean paragraphs.\n"
+                "- Fix broken hyphenated words (e.g. 'submis- sion' -> 'submission').\n"
+                "- Repair obvious character OCR typos without inventing new dates or facts.\n"
+                "- Output ONLY the cleaned circular text. No commentary or markdown backticks.\n\n"
+                f"--- RAW OCR START ---\n{raw_ocr_text}\n--- RAW OCR END ---"
+            )
+            payload = {
+                "model": GEMMA_MODEL,
+                "messages": [
+                    {"role": "system", "content": "You are a professional school circular OCR reconstruction assistant."},
+                    {"role": "user", "content": prompt}
+                ],
+                "temperature": 0.1,
+                "max_tokens": 1000
+            }
+            url = f"{BACKBOARD_BASE_URL.rstrip('/')}/chat/completions"
+            resp = requests.post(url, headers=headers, json=payload, timeout=timeout_sec)
+            if resp.status_code == 200:
+                data = resp.json()
+                cleaned = data["choices"][0]["message"]["content"].strip()
+                if cleaned:
+                    return {
+                        "cleaned_text": cleaned,
+                        "engine": f"Google Gemma 2 ({GEMMA_MODEL}) OCR Cleanup",
+                        "live_model_called": True
+                    }
+        except Exception as e:
+            logger.warning(f"Gemma OCR cleanup fallback: {e}")
+
+    # Fallback
+    deterministic_cleaned = clean_ocr_text_deterministic(raw_ocr_text)
+    return {
+        "cleaned_text": deterministic_cleaned,
+        "engine": "Deterministic OCR Normalizer (Offline Mode)",
+        "live_model_called": False
+    }
+

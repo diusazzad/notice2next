@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, PlainTextResponse
 from pydantic import BaseModel, Field
 
-from app.extractor import extract_action_items, BACKBOARD_API_KEY, GEMMA_MODEL
+from app.extractor import extract_action_items, clean_ocr_text, BACKBOARD_API_KEY, GEMMA_MODEL
 from app.validator import validate_extracted_checklist, validate_action_item
 from app.samples import SAMPLE_NOTICES, get_sample_by_id, get_all_samples_metadata
 from app.exporter import generate_csv, generate_markdown
@@ -47,6 +47,10 @@ class FetchURLRequest(BaseModel):
 class SpeakBriefingRequest(BaseModel):
     items: List[Dict[str, Any]] = Field(..., description="List of validated action items")
     summary: Optional[str] = Field("", description="Optional notice overview summary")
+
+
+class CleanOCRRequest(BaseModel):
+    raw_text: str = Field(..., min_length=3, description="Raw OCR scanned text from photo")
 
 
 @app.get("/")
@@ -148,6 +152,50 @@ async def speak_briefing_endpoint(req: SpeakBriefingRequest):
     """
     result = await synthesize_spoken_briefing(req.items, req.summary or "")
     return result
+
+
+@app.post("/api/clean-ocr-text")
+def clean_ocr_text_endpoint(req: CleanOCRRequest):
+    """
+    Cleans noisy raw OCR text using Google Gemma 2 or deterministic OCR normalizer.
+    Fixes broken line breaks, hyphenated words, and scan artifacts.
+    """
+    return clean_ocr_text(req.raw_text)
+
+
+@app.get("/api/sample-public-notice")
+def get_sample_public_notice():
+    """
+    Returns an official, verified academic circular document.
+    Serves as a guaranteed 200 OK test target for web/PDF URL ingestion.
+    """
+    html = """
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+      <meta charset="UTF-8">
+      <title>Academic Memo — Board of Secondary Education Notice</title>
+    </head>
+    <body style="font-family: Arial, sans-serif; line-height: 1.6; max-width: 800px; margin: 2rem auto; padding: 1.5rem; border: 1px solid #ccc;">
+      <h2 style="text-align: center; color: #1e3a8a;">BOARD OF INTERMEDIATE & SECONDARY EDUCATION</h2>
+      <h4 style="text-align: center; color: #475569; margin-top: -0.5rem;">OFFICIAL ADMINISTRATIVE DIRECTIVE (REF: BISE-ACAD-2026-904)</h4>
+      <p style="font-size: 0.9rem; color: #64748b; border-bottom: 1px solid #e2e8f0; padding-bottom: 0.5rem;">
+        Published: October 21, 2026 | Distribution: All Affiliated Schools & Colleges
+      </p>
+      
+      <p>It is hereby notified for the information of all Heads of Institutions, Grade 10 Homeroom Teachers, and Examination Coordinators that the final student candidate nomination lists for the upcoming 2027 Secondary Certificate Examinations must be submitted to the Board Controller Office by <strong>Tuesday, November 03, 2026 at 3:30 PM</strong>.</p>
+      
+      <p>Furthermore, all Accounts Officers and Class In-Charges must collect the mandatory board verification fee of <strong>$25 per candidate</strong> and deposit the treasury receipt slip before the deadline. Homeroom Teachers must verify and attach the student attendance declaration form with each submission packet.</p>
+      
+      <p style="margin-top: 2rem;">
+        By order of the Board Chairman,<br>
+        <strong>Dr. A. K. Azad</strong><br>
+        Controller of Examinations
+      </p>
+    </body>
+    </html>
+    """
+    return Response(content=html, media_type="text/html")
 
 
 @app.get("/api/benchmark")

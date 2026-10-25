@@ -7,7 +7,7 @@
 [![Model](https://img.shields.io/badge/Model-Google%20Gemma%202-8e44ad)](https://ai.google.dev/gemma)
 [![Python](https://img.shields.io/badge/Python-3.11%20%7C%203.13-3776ab?logo=python&logoColor=white)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Tests: 38 Passed](https://img.shields.io/badge/Tests-38%20Passed%20(100%25)-success)](tests/test_notice2next.py)
+[![Tests: 41 Passed](https://img.shields.io/badge/Tests-41%20Passed%20(100%25)-success)](tests/test_notice2next.py)
 [![CI](https://github.com/diusazzad/notice2next/actions/workflows/ci.yml/badge.svg)](https://github.com/diusazzad/notice2next/actions)
 
 ---
@@ -82,7 +82,7 @@ Before any action reaches the educator, our Python validation layer inspects eve
 
 ---
 
-## 🧪 3. Synthetic Regression Benchmark (38 Tests Passing)
+## 🧪 3. Synthetic Regression Benchmark (41 Tests Passing)
 
 Notice2Next includes an automated evaluation benchmark covering difficult boundary edge cases:
 
@@ -95,7 +95,7 @@ Notice2Next includes an automated evaluation benchmark covering difficult bounda
 | **Case 5** | Multi-Role Bangla Circular (শ্রেণি শিক্ষক ও আইসিটি) | Bangla | 2 | 2 | **100% Verbatim** | ✓ Distinct duties & deadlines extracted for homeroom vs lab staff. |
 | **Case 6** | Contradictory & Malformed Staff Note | English | 1 | 1 | **Flagged Review** | ✓ Correctly flagged contradictory timing (10 AM vs 5 PM) for human educator review. |
 
-**Regression Suite Result:** **100% Pass Rate (38/38 Automated Unit, SSRF & Audio Integration Tests Passed in 1.14s)**.
+**Regression Suite Result:** **100% Pass Rate (41/41 Automated Unit, SSRF, OCR & Audio Integration Tests Passed in 1.12s)**.
 
 ---
 

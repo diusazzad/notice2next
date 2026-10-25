@@ -44,9 +44,14 @@
             <button id="authLibraryBtn" class="auth-lib-btn" title="View your saved notice history">
               📚 My Notices (<span id="savedNoticeBadge">0</span>)
             </button>
-            <button id="authLogoutBtn" class="auth-logout-btn" title="Sign Out">✕</button>
+            <button id="authLogoutBtn" class="auth-logout-btn" title="Sign out of educator session">
+              <span>🚪</span> Sign Out
+            </button>
           </div>
         </div>
+        <button id="btnHowItWorks" class="theme-toggle-btn" title="How to use Notice2Next">
+          💡 How It Works
+        </button>
         <button id="themeToggleBtn" class="theme-toggle-btn" aria-label="Toggle Dark Mode" title="Toggle color theme">
           <span id="themeIcon">🌙</span> <span id="themeLabel">Dark Mode</span>
         </button>
@@ -69,10 +74,10 @@
     <section class="samples-section">
       <div class="samples-header">
         <span class="samples-title">🧪 1-Click Evaluation Scenarios:</span>
-        <span class="samples-hint">Click any button below to test against synthetic edge cases</span>
+        <span class="samples-hint">Click any button below to test against synthetic edge cases (or type/paste your own)</span>
       </div>
       <div class="samples-pills" id="samplePillsContainer">
-        <button type="button" class="sample-pill active" data-sample="case_1_complete">
+        <button type="button" class="sample-pill" data-sample="case_1_complete">
           🏫 Case 1: Complete Notice (Science Fair)
         </button>
         <button type="button" class="sample-pill" data-sample="case_2_omitted_deadline">
@@ -142,19 +147,34 @@
                 <div class="ocr-progress-fill" id="ocrProgressFill" style="width: 0%;"></div>
               </div>
             </div>
-            <button type="button" id="btnRetakePhoto" class="btn-secondary btn-sm">Retake / Change</button>
+            <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+              <button type="button" id="btnCleanOcr" class="btn-primary btn-sm" style="display: none;" title="Use Gemma to repair broken OCR lines and typos">
+                <span id="cleanOcrBtnIcon">✨</span> Clean with Gemma
+              </button>
+              <button type="button" id="btnRetakePhoto" class="btn-secondary btn-sm">Retake / Change</button>
+            </div>
           </div>
+          <div id="ocrCleanBadge" style="display: none; font-size: 0.78rem; color: #10b981; margin-top: 0.4rem; font-weight: 600;"></div>
         </div>
 
         <!-- Web & PDF URL Ingest Panel -->
         <div id="urlIngestPanel" class="url-ingest-panel" style="display: none;">
           <div class="url-input-row">
-            <input type="url" id="noticeUrlInput" class="url-input" placeholder="e.g. https://www.nu.ac.bd/uploads/notices/exam_routine.pdf or college notice link...">
+            <input type="url" id="noticeUrlInput" class="url-input" placeholder="Paste public notice webpage or PDF link, or click a verified sample below...">
             <button type="button" id="btnFetchUrl" class="btn-primary btn-sm">
               <span id="fetchUrlBtnIcon">🌐</span> Fetch Notice
             </button>
           </div>
-          <p class="url-hint">Supports direct PDF URLs and university/board notice portals with SSRF guard.</p>
+          <div class="url-sample-chips">
+            <span class="url-sample-label">⚡ 1-Click Verified Notice Links:</span>
+            <button type="button" class="btn-sample-url" data-url="/api/sample-public-notice">
+              🏫 Board Directive (2026 Academic Memo)
+            </button>
+            <button type="button" class="btn-sample-url" data-url="/health">
+              🩺 Service Health Check
+            </button>
+          </div>
+          <p class="url-hint">Supports direct PDF URLs and university/board portals with SSRF guard. If a remote website returns 404, its link may have expired.</p>
         </div>
 
         <div class="textarea-wrapper">
@@ -276,6 +296,110 @@
         <div class="modal-body" id="benchmarkModalBody">
           <div class="spinner"></div>
           <p style="text-align: center; margin-top: 1rem;">Executing live benchmark pipeline...</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- How It Works Modal -->
+    <div class="modal-overlay" id="howItWorksModal" style="display: none;">
+      <div class="modal-card how-it-works-modal-card">
+        <div class="modal-header">
+          <div>
+            <h3 class="modal-title">💡 How Notice2Next Works</h3>
+            <p class="modal-subtitle">5 steps from dense school circular to source-grounded action checklist</p>
+          </div>
+          <button id="btnCloseHowItWorksModal" class="btn-close" aria-label="Close modal">✕</button>
+        </div>
+        <div class="modal-body">
+          <div class="how-steps-container">
+            <div class="how-step-card">
+              <div class="how-step-num">1</div>
+              <div class="how-step-content">
+                <h4>Input School Notice, Paper Photo, or URL</h4>
+                <p>Paste circular text, snap a photo of a printed memo with client-side <strong>Tesseract.js OCR</strong>, or enter a public education board / PDF URL. If your photo text is blurry or noisy, click <strong>✨ Clean with Gemma</strong> to reconstruct clean sentences.</p>
+              </div>
+            </div>
+            <div class="how-step-card">
+              <div class="how-step-num">2</div>
+              <div class="how-step-content">
+                <h4>Extraction with Google Gemma 2</h4>
+                <p>The circular is structured into action verbs, teacher roles, dates, fees, and exact source quotes using <strong>Google Gemma 2</strong> open weights (with automatic offline deterministic fallback).</p>
+              </div>
+            </div>
+            <div class="how-step-card">
+              <div class="how-step-num">3</div>
+              <div class="how-step-content">
+                <h4>Deterministic Evidence Grounding</h4>
+                <p>Every field is mathematically verified against the source text. Verbatim quotes are checked substring-exact, numeric amount boundaries prevent $15 from matching $150, and whole-word assignee tokens prevent single digit collisions.</p>
+              </div>
+            </div>
+            <div class="how-step-card">
+              <div class="how-step-num">4</div>
+              <div class="how-step-content">
+                <h4>Auth0 Human-in-the-Loop Governance</h4>
+                <p>Any ambiguous, ungrounded, or contradictory instruction is strictly flagged for human review. Authenticated educators can review cited evidence and authorize the item (<code>TEACHER_APPROVED_VIA_AUTH0</code>).</p>
+              </div>
+            </div>
+            <div class="how-step-card">
+              <div class="how-step-num">5</div>
+              <div class="how-step-content">
+                <h4>Audio Briefing & 1-Click Export</h4>
+                <p>Listen to an <strong>ElevenLabs spoken morning audio briefing</strong> summarizing duties and deadlines on your commute, save to your Personal Notice Library, or export to CSV / Notion Markdown.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Auth0 Educator Sign In Modal -->
+    <div class="modal-overlay" id="authModal" style="display: none;">
+      <div class="modal-card auth-modal-card">
+        <div class="modal-header">
+          <div>
+            <h3 class="modal-title">🔐 Educator Sign In (Auth0 Governance Gate)</h3>
+            <p class="modal-subtitle">Verify your identity to authorize or correct flagged AI action items</p>
+          </div>
+          <button id="btnCloseAuthModal" class="btn-close" aria-label="Close modal">✕</button>
+        </div>
+        <div class="modal-body">
+          <div class="auth-modal-intro" style="background: rgba(79, 70, 229, 0.08); border: 1px solid rgba(79, 70, 229, 0.2); padding: 0.85rem; border-radius: var(--radius-sm); margin-bottom: 1.25rem; font-size: 0.84rem; line-height: 1.5;">
+            In school administration, autonomous AI agents cannot make final decisions on ambiguous circulars. <strong>Notice2Next uses Auth0</strong> as a human-in-the-loop governance gate: only authenticated educators can override or approve flagged compliance tasks.
+          </div>
+
+          <form id="authLoginForm" class="auth-form" onsubmit="return false;">
+            <div class="form-group" style="margin-bottom: 0.85rem;">
+              <label for="inputEducatorName" style="display: block; font-size: 0.82rem; font-weight: 600; margin-bottom: 0.3rem;">Educator Name:</label>
+              <input type="text" id="inputEducatorName" class="form-control" placeholder="e.g. Sazzad Hossain" value="Sazzad Hossain" style="width: 100%; padding: 0.5rem 0.75rem; border: 1px solid var(--border-color); border-radius: var(--radius-sm); font-size: 0.9rem;" required>
+            </div>
+            <div class="form-group" style="margin-bottom: 0.85rem;">
+              <label for="inputEducatorSchool" style="display: block; font-size: 0.82rem; font-weight: 600; margin-bottom: 0.3rem;">School / Institution:</label>
+              <input type="text" id="inputEducatorSchool" class="form-control" placeholder="e.g. Dhaka Residential Model College" value="Dhaka Residential Model College" style="width: 100%; padding: 0.5rem 0.75rem; border: 1px solid var(--border-color); border-radius: var(--radius-sm); font-size: 0.9rem;">
+            </div>
+            <div class="form-group" style="margin-bottom: 1.25rem;">
+              <label for="selectEducatorRole" style="display: block; font-size: 0.82rem; font-weight: 600; margin-bottom: 0.3rem;">Your Role / Department:</label>
+              <select id="selectEducatorRole" class="form-control" style="width: 100%; padding: 0.5rem 0.75rem; border: 1px solid var(--border-color); border-radius: var(--radius-sm); font-size: 0.9rem;">
+                <option value="Senior Educator (Academic Committee)">Senior Educator (Academic Committee)</option>
+                <option value="Department Head / Subject Coordinator">Department Head / Subject Coordinator</option>
+                <option value="Homeroom Teacher / Class In-Charge">Homeroom Teacher / Class In-Charge</option>
+                <option value="Examination Coordinator">Examination Coordinator</option>
+                <option value="Vice Principal / Administrator">Vice Principal / Administrator</option>
+              </select>
+            </div>
+
+            <div class="auth-form-actions">
+              <button type="submit" id="btnSubmitAuthLogin" class="btn-primary" style="width: 100%; padding: 0.65rem;">
+                <span>🔐</span> Authorize & Sign In with Auth0
+              </button>
+              <button type="button" id="btnQuickDemoEducator" class="btn-secondary" style="width: 100%; margin-top: 0.6rem; padding: 0.5rem;">
+                👤 Quick Fill: M. Rahman (Senior Educator Demo)
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+
     <!-- Personal Notice Library Modal (Auth0 / Local Storage Persistence) -->
     <div class="modal-overlay" id="libraryModal" style="display: none;">
       <div class="modal-card library-modal-card">

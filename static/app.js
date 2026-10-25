@@ -57,6 +57,9 @@ document.addEventListener('DOMContentLoaded', () => {
   const ocrStatusText = document.getElementById('ocrStatusText');
   const ocrProgressFill = document.getElementById('ocrProgressFill');
   const btnRetakePhoto = document.getElementById('btnRetakePhoto');
+  const btnCleanOcr = document.getElementById('btnCleanOcr');
+  const cleanOcrBtnIcon = document.getElementById('cleanOcrBtnIcon');
+  const ocrCleanBadge = document.getElementById('ocrCleanBadge');
   
   const urlIngestPanel = document.getElementById('urlIngestPanel');
   const noticeUrlInput = document.getElementById('noticeUrlInput');
@@ -71,14 +74,28 @@ document.addEventListener('DOMContentLoaded', () => {
   const authLogoutBtn = document.getElementById('authLogoutBtn');
   const savedNoticeBadge = document.getElementById('savedNoticeBadge');
   
+  const authModal = document.getElementById('authModal');
+  const btnCloseAuthModal = document.getElementById('btnCloseAuthModal');
+  const authLoginForm = document.getElementById('authLoginForm');
+  const inputEducatorName = document.getElementById('inputEducatorName');
+  const inputEducatorSchool = document.getElementById('inputEducatorSchool');
+  const selectEducatorRole = document.getElementById('selectEducatorRole');
+  const btnQuickDemoEducator = document.getElementById('btnQuickDemoEducator');
+
   const libraryModal = document.getElementById('libraryModal');
   const libraryModalBody = document.getElementById('libraryModalBody');
   const btnCloseLibraryModal = document.getElementById('btnCloseLibraryModal');
   
+  // How It Works Modal
+  const btnHowItWorks = document.getElementById('btnHowItWorks');
+  const howItWorksModal = document.getElementById('howItWorksModal');
+  const btnCloseHowItWorksModal = document.getElementById('btnCloseHowItWorksModal');
+
   // Benchmark Modal
   const benchmarkModal = document.getElementById('benchmarkModal');
   const benchmarkModalBody = document.getElementById('benchmarkModalBody');
   const btnCloseModal = document.getElementById('btnCloseModal');
+
 
   // Application State
   let currentItems = [];
@@ -200,7 +217,9 @@ document.addEventListener('DOMContentLoaded', () => {
       if (extractedText) {
         noticeInput.value = extractedText;
         updateCounters();
-        ocrStatusText.textContent = `✓ Scan complete (${extractedText.length} characters extracted). Review below.`;
+        btnCleanOcr.style.display = 'inline-flex';
+        ocrCleanBadge.style.display = 'none';
+        ocrStatusText.textContent = `✓ Scan complete (${extractedText.length} characters extracted). Click 'Clean with Gemma' below to repair formatting.`;
       } else {
         ocrStatusText.textContent = 'Notice image was blurry or contained no readable text. You can type/edit below.';
       }
@@ -214,13 +233,47 @@ document.addEventListener('DOMContentLoaded', () => {
         if (txt) {
           noticeInput.value = txt;
           updateCounters();
-          ocrStatusText.textContent = `✓ Scan complete (${txt.length} characters). Review below.`;
+          btnCleanOcr.style.display = 'inline-flex';
+          ocrCleanBadge.style.display = 'none';
+          ocrStatusText.textContent = `✓ Scan complete (${txt.length} characters). Click 'Clean with Gemma' to repair formatting.`;
           return;
         }
       } catch (err2) {
         // Fall through
       }
       ocrStatusText.textContent = 'OCR scan could not read image. Please paste circular text manually.';
+    }
+  });
+
+  // Clean OCR Text with Google Gemma 2 / Deterministic Normalizer
+  btnCleanOcr.addEventListener('click', async () => {
+    const rawText = noticeInput.value.trim();
+    if (!rawText) return;
+
+    btnCleanOcr.disabled = true;
+    cleanOcrBtnIcon.textContent = '⏳';
+    ocrStatusText.textContent = 'Reconstructing coherent sentences & fixing typos with Gemma...';
+
+    try {
+      const res = await fetch('/api/clean-ocr-text', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ raw_text: rawText })
+      });
+      if (!res.ok) throw new Error('OCR cleanup request failed');
+      const data = await res.json();
+      if (data.cleaned_text) {
+        noticeInput.value = data.cleaned_text;
+        updateCounters();
+        ocrCleanBadge.style.display = 'block';
+        ocrCleanBadge.textContent = `✓ Repaired & formatted via ${data.engine}`;
+        ocrStatusText.textContent = `✓ Cleaned text ready (${data.cleaned_text.length} characters). Inspect below and extract checklist!`;
+      }
+    } catch (err) {
+      alert('OCR cleanup error: ' + err.message);
+    } finally {
+      btnCleanOcr.disabled = false;
+      cleanOcrBtnIcon.textContent = '✨';
     }
   });
 
@@ -232,10 +285,19 @@ document.addEventListener('DOMContentLoaded', () => {
     noticeUrlInput.focus();
   });
 
+  // 1-Click Verified URL Sample Chips
+  document.querySelectorAll('.btn-sample-url').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const samplePath = btn.getAttribute('data-url');
+      noticeUrlInput.value = window.location.origin + samplePath;
+      btnFetchUrl.click();
+    });
+  });
+
   btnFetchUrl.addEventListener('click', async () => {
     const url = noticeUrlInput.value.trim();
     if (!url) {
-      alert('Please enter a valid circular URL or PDF link.');
+      alert('Please enter a valid circular URL or PDF link, or click a verified sample below.');
       return;
     }
 
@@ -259,7 +321,11 @@ document.addEventListener('DOMContentLoaded', () => {
       updateCounters();
       alert(`✓ Successfully loaded notice (${data.characters} characters) via ${data.engine}.\nYou can now inspect and click Extract Action Checklist.`);
     } catch (err) {
-      alert(`Could not fetch URL: ${err.message}`);
+      const is404 = err.message.includes('404');
+      const msg = is404
+        ? `⚠️ Remote notice link returned 404 (Not Found).\n\n${err.message}\n\n💡 Tip: Try clicking our 1-click verified sample link: "Board Directive (2026 Academic Memo)" below the input!`
+        : `Could not fetch URL:\n${err.message}`;
+      alert(msg);
     } finally {
       btnFetchUrl.disabled = false;
       btnFetchUrl.innerHTML = `<span>🌐</span> Fetch Notice`;
@@ -287,24 +353,64 @@ document.addEventListener('DOMContentLoaded', () => {
 
   updateAuthUI();
 
+  // Open Auth0 Sign In Modal
   authLoginBtn.addEventListener('click', () => {
-    // Auth0 Mock / Client Universal Login activation
+    authModal.style.display = 'flex';
+  });
+
+  btnCloseAuthModal.addEventListener('click', () => {
+    authModal.style.display = 'none';
+  });
+
+  authModal.addEventListener('click', (e) => {
+    if (e.target === authModal) {
+      authModal.style.display = 'none';
+    }
+  });
+
+  btnQuickDemoEducator.addEventListener('click', () => {
+    inputEducatorName.value = 'M. Rahman (Senior Educator)';
+    inputEducatorSchool.value = 'Dhaka Residential Model College';
+    selectEducatorRole.value = 'Senior Educator (Academic Committee)';
+  });
+
+  authLoginForm.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const name = inputEducatorName.value.trim() || 'Verified Educator';
     const educatorUser = {
-      id: 'auth0|educator_demo_' + Date.now(),
-      name: 'M. Rahman (Senior Educator)',
-      email: 'm.rahman@school.edu.bd',
-      role: 'Head of Academic Committee',
+      id: 'auth0|educator_' + Date.now(),
+      name: name,
+      school: inputEducatorSchool.value.trim() || 'Academic Institution',
+      role: selectEducatorRole.value,
       verified: true
     };
     localStorage.setItem('notice2next_auth_educator', JSON.stringify(educatorUser));
     updateAuthUI();
-    alert('✓ Signed in as M. Rahman (Senior Educator) via Auth0 Governance Gate.');
+    authModal.style.display = 'none';
+    alert(`✓ Successfully authenticated as ${name} via Auth0 Governance Gate.\nYou can now authorize or correct flagged items.`);
   });
 
   authLogoutBtn.addEventListener('click', () => {
     localStorage.removeItem('notice2next_auth_educator');
     updateAuthUI();
+    alert('✓ Signed out from educator session.');
   });
+
+  // How It Works Modal
+  if (btnHowItWorks && howItWorksModal) {
+    btnHowItWorks.addEventListener('click', () => {
+      howItWorksModal.style.display = 'flex';
+    });
+    btnCloseHowItWorksModal.addEventListener('click', () => {
+      howItWorksModal.style.display = 'none';
+    });
+    howItWorksModal.addEventListener('click', (e) => {
+      if (e.target === howItWorksModal) {
+        howItWorksModal.style.display = 'none';
+      }
+    });
+  }
+
 
   // Save Current Notice to Personal Library
   btnSaveToLibrary.addEventListener('click', () => {
@@ -409,16 +515,13 @@ document.addEventListener('DOMContentLoaded', () => {
           samplesCache[s.id] = s;
         });
 
-        // Set Case 1 as default initial text
-        if (samplesCache['case_1_complete'] && !noticeInput.value.trim()) {
-          noticeInput.value = samplesCache['case_1_complete'].text;
-          updateCounters();
-        }
+        // Keep textarea clean & pristine for user input on initial load
       }
     } catch (err) {
       console.warn('Could not fetch samples dynamically:', err);
     }
   }
+
 
   loadSamples();
 
