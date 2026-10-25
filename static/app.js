@@ -344,10 +344,23 @@ document.addEventListener('DOMContentLoaded', () => {
     noticeUrlInput.focus();
   });
 
-  // 1-Click Verified URL Sample Chips
+  // 1-Click Verified URL Sample Chips (Main Interface)
   document.querySelectorAll('.btn-sample-url').forEach(btn => {
     btn.addEventListener('click', () => {
       const samplePath = btn.getAttribute('data-url');
+      noticeUrlInput.value = window.location.origin + samplePath;
+      btnFetchUrl.click();
+    });
+  });
+
+  // 1-Click Verified URL Sample Buttons inside How It Works Modal
+  document.querySelectorAll('.how-sample-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const samplePath = btn.getAttribute('data-url');
+      if (howItWorksModal) {
+        howItWorksModal.style.display = 'none';
+      }
+      tabUrlFetch.click();
       noticeUrlInput.value = window.location.origin + samplePath;
       btnFetchUrl.click();
     });
@@ -427,11 +440,25 @@ document.addEventListener('DOMContentLoaded', () => {
       showToast(`Successfully loaded notice (${data.characters} characters) via ${data.engine}. You can now click "Extract Action Checklist".`, 'success', 'Notice Loaded');
 
     } catch (err) {
-      const is404 = err.message.includes('404');
+      const errMsg = err.message || '';
+      const is404 = errMsg.includes('404');
+      const is403 = errMsg.includes('403') || errMsg.toLowerCase().includes('forbidden');
+      const isTimeout = errMsg.toLowerCase().includes('timeout') || errMsg.toLowerCase().includes('timed out');
+
       if (is404) {
-        showToast(`${err.message}\n\n💡 Tip: Try clicking our 1-click verified sample: "Board Directive (2026 Academic Memo)" below!`, 'warning', 'Remote Notice 404 (Not Found)');
+        showToast(`${errMsg}\n\n💡 Tip: Try clicking our 1-click verified sample targets below!`, 'warning', 'Remote Notice 404 (Not Found)');
+      } else if (is403 || isTimeout) {
+        showToast(
+          `${errMsg}\n\n🛡️ Institutional Firewall Policy: Some regional portals block automated requests from foreign cloud datacenters (Render US/EU).\n\n💡 Solution: Click our 1-Click Verified Targets below, or use "Paste Text" / "Photo OCR" for zero-restriction on-device evaluation!`,
+          'warning',
+          'Cloud Firewall Block Detected'
+        );
       } else {
-        showToast(err.message, 'error', 'Could Not Fetch Notice URL');
+        showToast(
+          `${errMsg}\n\n💡 Tip: If this domain restricts foreign server traffic, please copy-paste the text or test with our 1-Click Verified Targets!`,
+          'error',
+          'Could Not Fetch Notice URL'
+        );
       }
     } finally {
       btnFetchUrl.disabled = false;

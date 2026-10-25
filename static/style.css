@@ -1304,7 +1304,9 @@ body {
    ========================================================================== */
 
 .how-it-works-modal-card {
-  max-width: 680px;
+  max-width: 740px;
+  max-height: 85vh;
+  overflow-y: auto;
 }
 
 .how-steps-container {
@@ -1335,6 +1337,11 @@ body {
   font-weight: 800;
   font-size: 0.95rem;
   flex-shrink: 0;
+}
+
+.how-step-content {
+  flex: 1;
+  min-width: 0;
 }
 
 .how-step-content h4 {
@@ -1386,6 +1393,164 @@ body {
 .btn-sample-url:hover {
   background: var(--primary);
   color: #fff;
+}
+
+/* URL Policy & Institutional Firewall Box */
+.url-policy-box {
+  background: rgba(79, 70, 229, 0.05);
+  border: 1px solid rgba(79, 70, 229, 0.2);
+  border-radius: var(--radius-sm);
+  padding: 0.75rem 0.95rem;
+  margin-top: 0.65rem;
+  margin-bottom: 0.65rem;
+  backdrop-filter: blur(8px);
+}
+
+.url-policy-badge {
+  font-family: 'Outfit', sans-serif;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--primary);
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-bottom: 0.35rem;
+}
+
+.url-policy-text {
+  font-size: 0.78rem;
+  line-height: 1.45;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.url-policy-text strong {
+  color: var(--text-main);
+}
+
+/* How It Works Modal URL Guide & Transparency */
+.how-url-guide {
+  margin-top: 0.85rem;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: 0.85rem;
+}
+
+.how-url-guide-header {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  margin-bottom: 0.65rem;
+}
+
+.how-url-badge {
+  font-family: 'Outfit', sans-serif;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--primary);
+  background: rgba(79, 70, 229, 0.12);
+  display: inline-block;
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+  width: fit-content;
+}
+
+.how-url-sub {
+  font-size: 0.75rem;
+  color: var(--text-subtle);
+}
+
+.how-sample-links {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  margin-bottom: 0.85rem;
+}
+
+.how-sample-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-family: 'Inter', sans-serif;
+  color: var(--text-main);
+  width: 100%;
+}
+
+.how-sample-btn:hover {
+  background: rgba(79, 70, 229, 0.08);
+  border-color: var(--primary);
+  transform: translateY(-1px);
+}
+
+.how-sample-tag {
+  font-size: 0.78rem;
+  font-weight: 700;
+  white-space: nowrap;
+  color: var(--primary);
+}
+
+.how-sample-btn code {
+  font-family: 'Fira Code', monospace;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  background: rgba(0, 0, 0, 0.2);
+  padding: 0.15rem 0.35rem;
+  border-radius: 3px;
+  word-break: break-all;
+}
+
+.how-firewall-callout {
+  background: rgba(245, 158, 11, 0.08);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  border-radius: 6px;
+  padding: 0.75rem 0.85rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.how-firewall-title {
+  font-family: 'Outfit', sans-serif;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: #f59e0b;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.how-firewall-desc {
+  font-size: 0.78rem;
+  line-height: 1.45;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.how-firewall-desc code {
+  font-family: 'Fira Code', monospace;
+  font-size: 0.72rem;
+  background: rgba(0, 0, 0, 0.2);
+  padding: 0.1rem 0.3rem;
+  border-radius: 3px;
+}
+
+.how-firewall-tip {
+  font-size: 0.78rem;
+  line-height: 1.45;
+  color: var(--text-main);
+  background: rgba(16, 185, 129, 0.1);
+  border-left: 3px solid #10b981;
+  padding: 0.4rem 0.6rem;
+  border-radius: 0 4px 4px 0;
+  margin: 0.25rem 0 0 0;
 }
 
 /* ==========================================================================

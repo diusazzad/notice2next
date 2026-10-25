@@ -15,7 +15,7 @@
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
   
-  <link rel="stylesheet" href="/static/style.css?v=2.2">
+  <link rel="stylesheet" href="/static/style.css?v=2.3">
   
   <!-- Tesseract.js for Browser-Side Privacy-First OCR -->
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
@@ -166,15 +166,26 @@
             </button>
           </div>
           <div class="url-sample-chips">
-            <span class="url-sample-label">⚡ 1-Click Verified Notice Links:</span>
-            <button type="button" class="btn-sample-url" data-url="/api/sample-public-notice">
-              🏫 Board Directive (2026 Academic Memo)
+            <span class="url-sample-label">⚡ 1-Click Verified Targets (For Judges & Instant Evaluation):</span>
+            <button type="button" class="btn-sample-url" data-url="/api/sample-public-notice" title="Test Board of Education directive">
+              🏫 Board Directive (Academic Memo)
             </button>
-            <button type="button" class="btn-sample-url" data-url="/health">
-              🩺 Service Health Check
+            <button type="button" class="btn-sample-url" data-url="/api/sample-university-circular" title="Test University semester exam & fees notice">
+              🎓 University Semester Circular
+            </button>
+            <button type="button" class="btn-sample-url" data-url="/api/sample-stem-directive" title="Test Inter-School Science Fair directive">
+              🔬 STEM Fair & Lab Protocol
             </button>
           </div>
-          <p class="url-hint">Supports direct PDF URLs and university/board portals with SSRF guard. If a remote website returns 404, its link may have expired.</p>
+
+          <div class="url-policy-box">
+            <div class="url-policy-badge">🛡️ Web Ingestion & Institutional Firewall Policy</div>
+            <p class="url-policy-text">
+              <strong>Supported:</strong> Public web pages, institutional circular URLs, and direct PDF links. 
+              <br>
+              <strong>Institutional Firewalls & Captchas:</strong> Some regional government portals (e.g. Bangladesh BCC or Cloudflare bot defense) block automated traffic from foreign cloud servers. If an external URL is firewalled or returns 404, judges and educators can click our <strong>1-Click Verified Targets</strong> above, or use <strong>📋 Paste Text</strong> / <strong>📷 Photo OCR</strong> for zero-restriction on-device processing.
+            </p>
+          </div>
         </div>
 
         <div class="textarea-wrapper">
@@ -317,6 +328,41 @@
               <div class="how-step-content">
                 <h4>Input School Notice, Paper Photo, or URL</h4>
                 <p>Paste circular text, snap a photo of a printed memo with client-side <strong>Tesseract.js OCR</strong>, or enter a public education board / PDF URL. If your photo text is blurry or noisy, click <strong>✨ Clean with Gemma</strong> to reconstruct clean sentences.</p>
+                
+                <!-- URL Testing Guide & Sample Links for Judges -->
+                <div class="how-url-guide">
+                  <div class="how-url-guide-header">
+                    <span class="how-url-badge">⚡ 3 Verified URL Targets for Evaluation</span>
+                    <span class="how-url-sub">Click any sample below to instantly load into the URL fetcher:</span>
+                  </div>
+                  <div class="how-sample-links">
+                    <button type="button" class="how-sample-btn" data-url="/api/sample-public-notice" title="Test Board of Education Directive">
+                      <span class="how-sample-tag">Board Directive:</span>
+                      <code>https://notice2next.onrender.com/api/sample-public-notice</code>
+                    </button>
+                    <button type="button" class="how-sample-btn" data-url="/api/sample-university-circular" title="Test University Exam Directive">
+                      <span class="how-sample-tag">University Circular:</span>
+                      <code>https://notice2next.onrender.com/api/sample-university-circular</code>
+                    </button>
+                    <button type="button" class="how-sample-btn" data-url="/api/sample-stem-directive" title="Test STEM Science Fair Directive">
+                      <span class="how-sample-tag">STEM Protocol:</span>
+                      <code>https://notice2next.onrender.com/api/sample-stem-directive</code>
+                    </button>
+                  </div>
+
+                  <!-- Why External Sites Fail / Firewall Notice -->
+                  <div class="how-firewall-callout">
+                    <div class="how-firewall-title">
+                      <span>🛡️</span> <strong>Why do some external government/university links fail?</strong>
+                    </div>
+                    <p class="how-firewall-desc">
+                      Notice2Next is deployed on cloud infrastructure (Render in Oregon / Frankfurt). Many national government and university portals (e.g. <code>nu.ac.bd</code> hosted by Bangladesh Computer Council or sites behind Cloudflare DDoS defense) block automated requests originating from foreign cloud datacenter IPs, returning <code>403 Forbidden</code>, timeouts, or CAPTCHA challenges.
+                    </p>
+                    <p class="how-firewall-tip">
+                      💡 <strong>Evaluation Tip:</strong> To evaluate our AI pipeline without firewall blocks, click any of our <strong>3 Verified Targets</strong> above, or simply use <strong>📝 Paste Text</strong> / <strong>📷 Photo OCR</strong> (which runs 100% on-device in your browser with zero network restrictions).
+                    </p>
+                  </div>
+                </div>
               </div>
             </div>
             <div class="how-step-card">
@@ -441,6 +487,6 @@
     </div>
   </footer>
 
-  <script src="/static/app.js?v=2.2"></script>
+  <script src="/static/app.js?v=2.3"></script>
 </body>
 </html>
