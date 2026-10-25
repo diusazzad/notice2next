@@ -167,7 +167,13 @@ def extract_with_deterministic_heuristic(notice_text: str) -> List[Dict[str, Any
         assignee = "NOT STATED"
         assignee_patterns = [
             r"(Grade \d+(?:\s+and\s+Grade \d+)?\s+Science Teachers)",
+            r"(Grade \d+\s+Class In-Charges and Examination Coordinators|Examination Coordinators|Class In-Charges)",
+            r"(All Accounts Officers|Accounts Officers)",
             r"(Homeroom Teachers(?:\s+of\s+Grade \d+)?)",
+            r"(Physical Education Department(?:\s+\([^)]+\))?)",
+            r"(Cultural Committee Coordinators)",
+            r"(All House Masters|House Masters)",
+            r"(Science Faculty Teachers)",
             r"(Senior Department Subject Heads)",
             r"(৯ম ও ১০ম শ্রেণির সকল শ্রেণি শিক্ষক)",
             r"(কম্পিউটার ল্যাব সহকারী ও আইসিটি শিক্ষক)",
@@ -187,6 +193,7 @@ def extract_with_deterministic_heuristic(notice_text: str) -> List[Dict[str, Any
             r"\bby\s+(\d{1,2}:\d{2}\s*(?:AM|PM)\s+tomorrow(?:\s+morning)?)",
             r"\bby\s+([A-Za-z]+,\s+[A-Za-z]+\s+\d{1,2},\s+\d{4})",
             r"\bby\s+([A-Za-z]+\s+\d{1,2},\s+\d{4}(?:\s+at\s+\d{1,2}:\d{2}\s*(?:AM|PM))?)",
+            r"\b(?:by|before)\s+(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)(?:\s+at\s+\d{1,2}:\d{2}\s*(?:AM|PM))?",
             r"\bআগামী\s+(\d{1,2}\s+[^\s,]+\s+\d{4}(?:,\s+[^\s,]+)?(?:\s+দুপুর\s+\d{1,2}:\d{2}\s*ঘটিকা)?)",
             r"\bআগামী\s+(\d{1,2}\s+[^\s,]+\s+\d{4}\s+তারিখের\s+মধ্যে)"
         ]
