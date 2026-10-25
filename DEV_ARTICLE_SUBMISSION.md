@@ -39,6 +39,13 @@ Enter **Notice2Next** — an open-source web application that converts dense phy
 * 🧪 **Live System Health Check:** [https://notice2next.onrender.com/health](https://notice2next.onrender.com/health)
 * ⚙️ **Automated CI Workflow (GitHub Actions):** [https://github.com/diusazzad/notice2next/actions](https://github.com/diusazzad/notice2next/actions)
 
+> 🛡️ **Judge & Evaluator Quick Start (1-Click Verified URL Targets):**  
+> Because Render cloud servers are hosted in US/EU datacenters, certain national government portals (e.g. Bangladesh BCC / `nu.ac.bd`) enforce Geo-IP blocks or anti-bot firewalls on automated cloud IPs. To test live URL fetching with zero latency or firewall blocks, use our 3 verified endpoints directly or via 1-click buttons in the UI:
+> 1. `https://notice2next.onrender.com/api/sample-public-notice` (Board Directive - Academic Memo)
+> 2. `https://notice2next.onrender.com/api/sample-university-circular` (University Exam Directive)
+> 3. `https://notice2next.onrender.com/api/sample-stem-directive` (Inter-School STEM Science Fair Protocol)
+> For any external paper or digital notice, the on-device **📷 Photo OCR** and **📝 Paste Text** tabs process 100% in-browser with zero network restrictions!
+
 ---
 
 ## 🦥 3. The "Slow & Steady" Lazy Payoff
