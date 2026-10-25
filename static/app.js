@@ -104,6 +104,65 @@ document.addEventListener('DOMContentLoaded', () => {
   let isSpeaking = false;
 
   // ==========================================
+  // IN-APP TOAST NOTIFICATION SYSTEM
+  // Replaces intrusive browser alert() popups
+  // ==========================================
+  function showToast(message, type = 'info', title = null, durationMs = 4500) {
+    const container = document.getElementById('toastContainer');
+    if (!container) return;
+
+    const icons = {
+      success: '✅',
+      error: '❌',
+      warning: '⚠️',
+      info: 'ℹ️'
+    };
+    const defaultTitles = {
+      success: 'Notice2Next Success',
+      error: 'Notice2Next Error',
+      warning: 'Notice Warning',
+      info: 'Notice2Next'
+    };
+
+    const icon = icons[type] || 'ℹ️';
+    const heading = title || defaultTitles[type] || 'Notice2Next';
+
+    const toast = document.createElement('div');
+    toast.className = `n2n-toast toast-${type}`;
+    toast.setAttribute('role', 'alert');
+
+    toast.innerHTML = `
+      <div class="toast-icon-wrap">${icon}</div>
+      <div class="toast-body">
+        <div class="toast-heading">${escapeHtml(heading)}</div>
+        <div class="toast-desc">${escapeHtml(message)}</div>
+      </div>
+      <button class="toast-close-btn" aria-label="Dismiss notification" title="Dismiss">✕</button>
+    `;
+
+    const closeBtn = toast.querySelector('.toast-close-btn');
+    let timer = null;
+
+    const dismiss = () => {
+      if (timer) clearTimeout(timer);
+      toast.classList.add('toast-hiding');
+      setTimeout(() => {
+        if (toast.parentNode) {
+          toast.parentNode.removeChild(toast);
+        }
+      }, 230);
+    };
+
+    closeBtn.addEventListener('click', dismiss);
+
+    if (durationMs > 0) {
+      timer = setTimeout(dismiss, durationMs);
+    }
+
+    container.appendChild(toast);
+  }
+
+  // ==========================================
   // 1. THEME MANAGEMENT (Light / Dark)
   // ==========================================
   function updateThemeUI(theme) {
@@ -270,7 +329,7 @@ document.addEventListener('DOMContentLoaded', () => {
         ocrStatusText.textContent = `✓ Cleaned text ready (${data.cleaned_text.length} characters). Inspect below and extract checklist!`;
       }
     } catch (err) {
-      alert('OCR cleanup error: ' + err.message);
+      showToast(err.message, 'error', 'Gemma OCR Cleanup Failed');
     } finally {
       btnCleanOcr.disabled = false;
       cleanOcrBtnIcon.textContent = '✨';
@@ -297,7 +356,7 @@ document.addEventListener('DOMContentLoaded', () => {
   btnFetchUrl.addEventListener('click', async () => {
     const url = noticeUrlInput.value.trim();
     if (!url) {
-      alert('Please enter a valid circular URL or PDF link, or click a verified sample below.');
+      showToast('Please enter a valid circular URL or PDF link, or click our 1-click verified sample below.', 'warning', 'URL Required');
       return;
     }
 
@@ -363,14 +422,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
       noticeInput.value = data.text;
       updateCounters();
-      alert(`✓ Successfully loaded notice (${data.characters} characters) via ${data.engine}.\nYou can now inspect and click Extract Action Checklist.`);
+      showToast(`Successfully loaded notice (${data.characters} characters) via ${data.engine}. You can now click "Extract Action Checklist".`, 'success', 'Notice Loaded');
 
     } catch (err) {
       const is404 = err.message.includes('404');
-      const msg = is404
-        ? `⚠️ Remote notice link returned 404 (Not Found).\n\n${err.message}\n\n💡 Tip: Try clicking our 1-click verified sample link: "Board Directive (2026 Academic Memo)" below the input!`
-        : `Could not fetch URL:\n${err.message}`;
-      alert(msg);
+      if (is404) {
+        showToast(`${err.message}\n\n💡 Tip: Try clicking our 1-click verified sample: "Board Directive (2026 Academic Memo)" below!`, 'warning', 'Remote Notice 404 (Not Found)');
+      } else {
+        showToast(err.message, 'error', 'Could Not Fetch Notice URL');
+      }
     } finally {
       btnFetchUrl.disabled = false;
       btnFetchUrl.innerHTML = `<span>🌐</span> Fetch Notice`;
@@ -432,13 +492,13 @@ document.addEventListener('DOMContentLoaded', () => {
     localStorage.setItem('notice2next_auth_educator', JSON.stringify(educatorUser));
     updateAuthUI();
     authModal.style.display = 'none';
-    alert(`✓ Successfully authenticated as ${name} via Auth0 Governance Gate.\nYou can now authorize or correct flagged items.`);
+    showToast(`Authenticated as ${name} via Auth0 Governance Gate. You can now authorize or correct flagged items.`, 'success', 'Educator Verified');
   });
 
   authLogoutBtn.addEventListener('click', () => {
     localStorage.removeItem('notice2next_auth_educator');
     updateAuthUI();
-    alert('✓ Signed out from educator session.');
+    showToast('Signed out from educator session.', 'info', 'Session Ended');
   });
 
   // How It Works Modal
@@ -460,7 +520,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // Save Current Notice to Personal Library
   btnSaveToLibrary.addEventListener('click', () => {
     if (currentItems.length === 0) {
-      alert('Please extract a circular before saving to your library.');
+      showToast('Please extract actions from a circular before saving to your library.', 'warning', 'No Circular Extracted');
       return;
     }
 
@@ -479,7 +539,7 @@ document.addEventListener('DOMContentLoaded', () => {
     savedList.unshift(record);
     localStorage.setItem('notice2next_saved_library', JSON.stringify(savedList));
     updateAuthUI();
-    alert(`✓ Notice successfully saved to your Personal Library (${currentItems.length} actions stored).`);
+    showToast(`Notice successfully saved to your Personal Library (${currentItems.length} actions stored).`, 'success', 'Saved to Library');
   });
 
   // Open Library Modal
@@ -609,7 +669,7 @@ document.addEventListener('DOMContentLoaded', () => {
   async function runExtraction() {
     const text = noticeInput.value.trim();
     if (!text) {
-      alert('Please enter, scan, or fetch a circular to extract actions.');
+      showToast('Please enter, scan, or fetch a circular first before extracting actions.', 'warning', 'Notice Text Required');
       return;
     }
 
@@ -667,7 +727,7 @@ document.addEventListener('DOMContentLoaded', () => {
       loadingState.style.display = 'none';
       btnExtract.disabled = false;
       btnExtract.innerHTML = `<span class="btn-icon">⚡</span> Extract Action Checklist`;
-      alert(`Error during extraction: ${err.message}. Please check server health.`);
+      showToast(`${err.message}. Please check server health or verify input.`, 'error', 'Extraction Failed');
       emptyState.style.display = 'block';
     }
   }
@@ -766,7 +826,7 @@ document.addEventListener('DOMContentLoaded', () => {
         currentItems[idx].validation_status = 'TEACHER_APPROVED_VIA_AUTH0';
         currentItems[idx].quote_verified = true;
         currentItems[idx].validation_badge_text = '✓ Educator Approved (Auth0)';
-        alert(`✓ Task #${idx + 1} approved by Educator via Auth0 Governance Gate.`);
+        showToast(`Task #${idx + 1} approved by Educator via Auth0 Governance Gate.`, 'success', 'Action Approved');
         renderChecklist(currentItems, summary);
       });
     });
@@ -830,12 +890,12 @@ document.addEventListener('DOMContentLoaded', () => {
           utterance.onerror = stopAudioBriefing;
           window.speechSynthesis.speak(utterance);
         } else {
-          alert('Briefing text:\n\n' + data.briefing_text);
+          showToast(data.briefing_text, 'info', 'Spoken Briefing Text', 8000);
           stopAudioBriefing();
         }
       }
     } catch (err) {
-      alert(`Audio synthesis error: ${err.message}`);
+      showToast(err.message, 'error', 'Audio Synthesis Error');
       stopAudioBriefing();
     }
   });
@@ -879,8 +939,9 @@ document.addEventListener('DOMContentLoaded', () => {
       a.click();
       a.remove();
       window.URL.revokeObjectURL(url);
+      showToast('Checklist downloaded as notice2next_action_checklist.csv', 'success', 'CSV Exported', 3000);
     } catch (err) {
-      alert(`Could not download CSV: ${err.message}`);
+      showToast(err.message, 'error', 'CSV Export Failed');
     }
   });
 
@@ -903,6 +964,7 @@ document.addEventListener('DOMContentLoaded', () => {
     navigator.clipboard.writeText(md).then(() => {
       const origText = btnCopyMarkdown.innerHTML;
       btnCopyMarkdown.innerHTML = '✓ Copied!';
+      showToast('Checklist copied to clipboard as Markdown table.', 'success', 'Markdown Copied', 2500);
       setTimeout(() => {
         btnCopyMarkdown.innerHTML = origText;
       }, 2000);

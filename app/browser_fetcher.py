@@ -130,94 +130,108 @@ async def fetch_notice_from_url(url_str: str) -> Dict[str, Any]:
 
     # 2. Standard Direct Verified Web & PDF Loader
     headers = {
-        "User-Agent": "Notice2Next-Assistant/2.0 (Hacktoberfest Week 3 Academic Parser; +https://notice2next.onrender.com)",
-        "Accept": "text/html,application/xhtml+xml,application/pdf,*/*"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,application/pdf,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9,bn;q=0.8"
     }
 
     try:
-        async with httpx.AsyncClient(timeout=12.0, follow_redirects=True, headers=headers) as client:
-            response = await client.get(url_str)
-            if response.status_code != 200:
-                if response.status_code == 404:
-                    err_detail = "Remote website returned 404 (Not Found). The requested circular URL or PDF does not exist or has moved. Please verify the URL or try our 1-click verified sample notice link."
-                elif response.status_code == 403:
-                    err_detail = "Remote website returned 403 (Forbidden). The institution server blocks external automated access. Please copy and paste the notice text directly."
-                else:
-                    err_detail = f"Server returned status {response.status_code} {response.reason_phrase}"
+        response = None
+        # Attempt standard secure GET first
+        try:
+            async with httpx.AsyncClient(timeout=20.0, follow_redirects=True, headers=headers) as client:
+                response = await client.get(url_str)
+        except (httpx.ConnectError, httpx.SecurityError, Exception) as primary_net_err:
+            # Fallback with verify=False if institutional portal has incomplete/self-signed SSL intermediate certificates
+            try:
+                async with httpx.AsyncClient(timeout=20.0, follow_redirects=True, headers=headers, verify=False) as insecure_client:
+                    response = await insecure_client.get(url_str)
+            except Exception:
+                raise primary_net_err
 
-                return {
-                    "success": False,
-                    "error": err_detail,
-                    "url": url_str
-                }
+        if response is None or response.status_code != 200:
+            status = response.status_code if response else 500
+            reason = response.reason_phrase if response else "Server Unreachable"
+            if status == 404:
+                err_detail = "Remote website returned 404 (Not Found). The circular URL or PDF does not exist or has expired. Please verify the URL or try our 1-click verified sample notice link."
+            elif status == 403:
+                err_detail = "Remote website returned 403 (Forbidden). The institution server blocks external automated access. Please copy and paste the notice text directly."
+            else:
+                err_detail = f"Server returned status {status} {reason}"
 
-            content_type = response.headers.get("content-type", "").lower()
-            is_pdf = "application/pdf" in content_type or url_str.lower().endswith(".pdf")
+            return {
+                "success": False,
+                "error": err_detail,
+                "url": url_str
+            }
 
-            if is_pdf:
-                # PDF Text Extraction using pypdf
-                try:
-                    pdf_file = io.BytesIO(response.content)
-                    reader = PdfReader(pdf_file)
-                    text_parts = []
-                    for idx, page in enumerate(reader.pages[:10]):  # Extract up to first 10 pages
-                        page_text = page.extract_text() or ""
-                        if page_text.strip():
-                            text_parts.append(page_text.strip())
-                    
-                    extracted_text = "\n\n--- Page Break ---\n\n".join(text_parts)
-                    if not extracted_text.strip():
-                        # Extract page images from scanned PDF for client-side OCR
-                        image_data_urls = []
-                        try:
-                            for p in reader.pages[:3]:
-                                for img in p.images:
-                                    b64 = base64.b64encode(img.data).decode("utf-8")
-                                    mime = "image/jpeg" if img.name.lower().endswith((".jpg", ".jpeg")) else "image/png"
-                                    image_data_urls.append(f"data:{mime};base64,{b64}")
-                                    if len(image_data_urls) >= 3:
-                                        break
+        content_type = response.headers.get("content-type", "").lower()
+        is_pdf = "application/pdf" in content_type or url_str.lower().endswith(".pdf")
+
+        if is_pdf:
+            # PDF Text Extraction using pypdf
+            try:
+                pdf_file = io.BytesIO(response.content)
+                reader = PdfReader(pdf_file)
+                text_parts = []
+                for idx, page in enumerate(reader.pages[:10]):  # Extract up to first 10 pages
+                    page_text = page.extract_text() or ""
+                    if page_text.strip():
+                        text_parts.append(page_text.strip())
+                
+                extracted_text = "\n\n--- Page Break ---\n\n".join(text_parts)
+                if not extracted_text.strip():
+                    # Extract page images from scanned PDF for client-side OCR
+                    image_data_urls = []
+                    try:
+                        for p in reader.pages[:3]:
+                            for img in p.images:
+                                b64 = base64.b64encode(img.data).decode("utf-8")
+                                mime = "image/jpeg" if img.name.lower().endswith((".jpg", ".jpeg")) else "image/png"
+                                image_data_urls.append(f"data:{mime};base64,{b64}")
                                 if len(image_data_urls) >= 3:
                                     break
-                        except Exception as img_err:
-                            pass
+                            if len(image_data_urls) >= 3:
+                                break
+                    except Exception as img_err:
+                        import logging
+                        logging.getLogger(__name__).warning("PDF scanned image extraction fallback note: %s", str(img_err))
 
-                        if image_data_urls:
-                            return {
-                                "success": True,
-                                "is_scanned_pdf": True,
-                                "images": image_data_urls,
-                                "url": url_str,
-                                "title": f"Scanned Paper Circular ({len(reader.pages)} pages)",
-                                "text": "",
-                                "characters": 0,
-                                "source_type": "pdf_scanned_image",
-                                "engine": "Automatic Scanned PDF Ingestion + OCR Bridge"
-                            }
-
+                    if image_data_urls:
                         return {
-                            "success": False,
-                            "error": "This PDF contains scanned images with no embedded selectable text. Please upload or photograph the notice directly in the 'Take Photo / OCR' tab.",
+                            "success": True,
+                            "is_scanned_pdf": True,
+                            "images": image_data_urls,
                             "url": url_str,
-                            "source_type": "pdf_scanned"
+                            "title": f"Scanned Paper Circular ({len(reader.pages)} pages)",
+                            "text": "",
+                            "characters": 0,
+                            "source_type": "pdf_scanned_image",
+                            "engine": "Automatic Scanned PDF Ingestion + OCR Bridge"
                         }
 
-
-                    return {
-                        "success": True,
-                        "url": url_str,
-                        "title": f"Official PDF Notice ({len(reader.pages)} pages)",
-                        "text": extracted_text,
-                        "source_type": "pdf",
-                        "characters": len(extracted_text),
-                        "engine": "Browserbase / Direct PDF Ingestion Engine"
-                    }
-                except Exception as pdf_err:
                     return {
                         "success": False,
-                        "error": f"Failed to parse PDF document: {str(pdf_err)}",
-                        "url": url_str
+                        "error": "This PDF contains scanned images with no embedded selectable text. Please upload or photograph the notice directly in the 'Take Photo / OCR' tab.",
+                        "url": url_str,
+                        "source_type": "pdf_scanned"
                     }
+
+                return {
+                    "success": True,
+                    "url": url_str,
+                    "title": f"Official PDF Notice ({len(reader.pages)} pages)",
+                    "text": extracted_text,
+                    "source_type": "pdf",
+                    "characters": len(extracted_text),
+                    "engine": "Browserbase / Direct PDF Ingestion Engine"
+                }
+            except Exception as pdf_err:
+                return {
+                    "success": False,
+                    "error": f"Failed to parse PDF document: {str(pdf_err)}",
+                    "url": url_str
+                }
             else:
                 # HTML Web Page Notice
                 html_text = clean_html_to_text(response.text)
@@ -241,7 +255,7 @@ async def fetch_notice_from_url(url_str: str) -> Dict[str, Any]:
     except httpx.TimeoutException:
         return {
             "success": False,
-            "error": "Connection timed out while fetching notice URL (limit 12 seconds).",
+            "error": "Connection timed out while fetching notice URL (limit 20 seconds). The remote server may be slow or firewall-restricted.",
             "url": url_str
         }
     except Exception as e:
