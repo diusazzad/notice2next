@@ -37,6 +37,53 @@ Rules:
 No markdown prose, no conversation."""
 
 
+def query_backboard_native(prompt: str, timeout_sec: float = 14.0) -> Optional[str]:
+    """
+    Direct client for Backboard AI (app.backboard.io) with unified routing.
+    Creates thread and posts message using official X-API-Key protocol.
+    """
+    if not BACKBOARD_API_KEY or BACKBOARD_API_KEY.startswith("your_"):
+        return None
+    try:
+        headers = {
+            "X-API-Key": BACKBOARD_API_KEY,
+            "Content-Type": "application/json"
+        }
+        base = "https://app.backboard.io/api"
+        # 1. Fetch assistant
+        asts_resp = requests.get(f"{base}/assistants", headers=headers, timeout=timeout_sec)
+        if asts_resp.status_code != 200:
+            return None
+        asts = asts_resp.json()
+        if not asts or not isinstance(asts, list):
+            return None
+        assistant_id = asts[0].get("assistant_id")
+        if not assistant_id:
+            return None
+
+        # 2. Open thread
+        th_resp = requests.post(f"{base}/assistants/{assistant_id}/threads", headers=headers, timeout=timeout_sec)
+        if th_resp.status_code != 200:
+            return None
+        thread_id = th_resp.json().get("thread_id")
+        if not thread_id:
+            return None
+
+        # 3. Send message
+        msg_resp = requests.post(
+            f"{base}/threads/{thread_id}/messages",
+            headers=headers,
+            json={"content": prompt, "memory": "Auto"},
+            timeout=timeout_sec
+        )
+        if msg_resp.status_code == 200:
+            return msg_resp.json().get("content")
+    except Exception as e:
+        logger.warning(f"Backboard native API query exception: {e}")
+        return None
+    return None
+
+
 def extract_with_gemma_api(notice_text: str, timeout_sec: float = 12.0) -> Optional[List[Dict[str, Any]]]:
     """
     Calls Google Gemma 2 endpoint via Backboard / OpenAI-compatible completion API.
@@ -44,11 +91,6 @@ def extract_with_gemma_api(notice_text: str, timeout_sec: float = 12.0) -> Optio
     """
     if not BACKBOARD_API_KEY or BACKBOARD_API_KEY.startswith("your_"):
         return None
-
-    headers = {
-        "Authorization": f"Bearer {BACKBOARD_API_KEY}",
-        "Content-Type": "application/json"
-    }
 
     user_prompt = (
         f"Parse the following school circular into structured action items:\n\n"
@@ -58,6 +100,29 @@ def extract_with_gemma_api(notice_text: str, timeout_sec: float = 12.0) -> Optio
         f"Output JSON schema:\n"
         f'{{"actions": [{{"action": "...", "assignee": "...", "deadline": "...", "fee_or_docs": "...", "source_quote": "..."}}]}}'
     )
+
+    # 1. Native Backboard protocol for espr_ API keys
+    if BACKBOARD_API_KEY.startswith("espr_"):
+        full_prompt = f"{SYSTEM_PROMPT}\n\n{user_prompt}"
+        content = query_backboard_native(full_prompt, timeout_sec=timeout_sec)
+        if content:
+            if content.startswith("```"):
+                content = re.sub(r"^```(?:json)?\s*", "", content, flags=re.MULTILINE)
+                content = re.sub(r"\s*```$", "", content, flags=re.MULTILINE).strip()
+            try:
+                parsed = json.loads(content)
+                if isinstance(parsed, dict) and "actions" in parsed:
+                    return parsed["actions"]
+                elif isinstance(parsed, list):
+                    return parsed
+            except Exception as pe:
+                logger.warning(f"Backboard native response parse error: {pe}")
+
+    # 2. Standard OpenAI-compatible /chat/completions endpoint
+    headers = {
+        "Authorization": f"Bearer {BACKBOARD_API_KEY}",
+        "Content-Type": "application/json"
+    }
 
     payload = {
         "model": GEMMA_MODEL,
@@ -328,6 +393,24 @@ def clean_ocr_text(raw_ocr_text: str, timeout_sec: float = 10.0) -> Dict[str, An
         return {"cleaned_text": "", "engine": "Deterministic Normalizer", "live_model_called": False}
 
     if BACKBOARD_API_KEY and not BACKBOARD_API_KEY.startswith("your_"):
+        # 1. Native Backboard protocol for espr_ API keys
+        if BACKBOARD_API_KEY.startswith("espr_"):
+            ocr_prompt = (
+                "You are an expert OCR correction assistant for school notices and circulars.\n"
+                "Reconstruct and output ONLY the clean, coherent original notice text. No commentary or markdown backticks.\n\n"
+                f"{raw_ocr_text}"
+            )
+            cleaned = query_backboard_native(ocr_prompt, timeout_sec=timeout_sec)
+            if cleaned:
+                if cleaned.startswith("```"):
+                    cleaned = re.sub(r"^```(?:markdown|text)?\s*", "", cleaned, flags=re.MULTILINE)
+                    cleaned = re.sub(r"\s*```$", "", cleaned, flags=re.MULTILINE).strip()
+                return {
+                    "cleaned_text": cleaned.strip(),
+                    "engine": f"Google Gemma 2 ({GEMMA_MODEL}) via Backboard AI",
+                    "live_model_called": True
+                }
+
         try:
             headers = {
                 "Authorization": f"Bearer {BACKBOARD_API_KEY}",
