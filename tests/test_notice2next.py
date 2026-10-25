@@ -454,6 +454,89 @@ def test_verify_assignee_role_from_separate_clause_flagged():
     assert "Role Mismatch" in val["validation_badge_text"]
 
 
+# 13. Monetary Fee Amount Boundary Check (P0 Regression: $15 candidate vs $150 quote, and budget allocation vs no fee)
+def test_verify_fee_amount_boundary_and_disclaimer():
+    """P0 Regression: A candidate $15 fee must not be accepted from a $150 amount or a $15 budget allocation when no fee is stated."""
+    # Test 13A: $15 fee vs $150 quote -> fail closed
+    quote_150 = "A transport fee of $150 is required."
+    ok, reason = verify_fee_or_docs(quote_150, "$15 fee")
+    assert ok is False
+    assert reason == "FEE_NOT_IN_SUPPORTING_QUOTE"
+
+    val_150 = validate_action_item(quote_150, {
+        "action": "Pay transport cost",
+        "assignee": "NOT STATED",
+        "deadline": "NOT STATED",
+        "fee_or_docs": "$15 fee",
+        "source_quote": quote_150
+    })
+    assert val_150["validation_status"] == "FLAGGED_FOR_HUMAN_REVIEW"
+    assert val_150["field_evidence"]["fee_or_docs"]["status"] == "FEE_NOT_IN_SUPPORTING_QUOTE"
+
+    # Test 13B: $15 fee vs $15 quote -> amount supported
+    quote_15 = "A transport fee of $15 is required."
+    ok_15, reason_15 = verify_fee_or_docs(quote_15, "$15 fee")
+    assert ok_15 is True
+    assert reason_15 == "FEE_DOCS_GROUNDED_IN_QUOTE"
+
+    # Test 13C: $15 fee vs $15 budget allocation with explicit no fee disclaimer -> flag for review
+    quote_budget = "A budget allocation of $15 was recorded; no fee is required."
+    ok_b, reason_b = verify_fee_or_docs(quote_budget, "$15 fee")
+    assert ok_b is False
+    assert reason_b == "FEE_NOT_IN_SUPPORTING_QUOTE"
+
+    val_budget = validate_action_item(quote_budget, {
+        "action": "Record project budget",
+        "assignee": "NOT STATED",
+        "deadline": "NOT STATED",
+        "fee_or_docs": "$15 fee",
+        "source_quote": quote_budget
+    })
+    assert val_budget["validation_status"] == "FLAGGED_FOR_HUMAN_REVIEW"
+    assert val_budget["field_evidence"]["fee_or_docs"]["status"] == "FEE_NOT_IN_SUPPORTING_QUOTE"
+
+
+# 14. Assignee Token Word-Boundary Check (P0 Regression: Grade 1 vs Grade 10)
+def test_verify_assignee_grade_1_vs_grade_10_flagged():
+    """P0 Regression: Grade 1 Science Teachers must not be accepted when quote states Grade 10 Science Teachers."""
+    notice = "Grade 10 Science Teachers must submit lab rosters."
+    quote = "Grade 10 Science Teachers must submit lab rosters."
+    candidate_assignee = "Grade 1 Science Teachers"
+
+    val = validate_action_item(notice, {
+        "action": "Submit lab rosters",
+        "assignee": candidate_assignee,
+        "deadline": "NOT STATED",
+        "source_quote": quote
+    })
+    assert val["validation_status"] == "FLAGGED_FOR_HUMAN_REVIEW"
+    assert val["field_evidence"]["assignee"]["status"] == "ROLE_PARTIAL_MATCH"
+    assert val["field_evidence"]["assignee"]["is_grounded"] is False
+    assert "Role Mismatch" in val["validation_badge_text"]
+
+
+# 15. Required Document Form Stripping Check (P0 Regression: 'Permission form' vs 'Permission was discussed')
+def test_verify_required_doc_permission_form_vs_permission_discussed():
+    """P0 Regression: Candidate document 'Permission form' must be rejected when quote only mentions 'Permission was discussed'."""
+    quote = "Permission was discussed during the meeting."
+    candidate_doc = "Permission form"
+
+    ok, reason = verify_fee_or_docs(quote, candidate_doc)
+    assert ok is False
+    assert reason == "DOCS_NOT_IN_SUPPORTING_QUOTE"
+
+    val = validate_action_item(quote, {
+        "action": "Submit permission form",
+        "assignee": "NOT STATED",
+        "deadline": "NOT STATED",
+        "fee_or_docs": candidate_doc,
+        "source_quote": quote
+    })
+    assert val["validation_status"] == "FLAGGED_FOR_HUMAN_REVIEW"
+    assert val["field_evidence"]["fee_or_docs"]["status"] == "DOCS_NOT_IN_SUPPORTING_QUOTE"
+    assert "Document Mismatch" in val["validation_badge_text"]
+
+
 # ==============================================================================
 # 3. GEMMA 2 INFERENCE PATH & RESILIENCE TESTS (Mocked Calls)
 # ==============================================================================

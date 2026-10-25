@@ -204,34 +204,64 @@ def verify_fee_or_docs(quote: str, fee_or_docs: str) -> Tuple[bool, str]:
     # Extract monetary patterns e.g. $15, 15 dollars, 15 টাকা, 15 tk
     fee_patterns = re.findall(r"(\$\s*\d+(?:\.\d{2})?|\d+\s*(?:dollars?|টাকা|tk))", clean_val)
     if fee_patterns:
+        # Check if supporting quote explicitly disclaims any fee (e.g. "no fee is required")
+        no_fee_disclaimer = bool(
+            re.search(
+                r"\b(?:no\s+fee|no\s+fees|no\s+charge|no\s+charges|free\s+of\s+charge|without\s+(?:any\s+)?fee)\b",
+                norm_quote,
+                re.IGNORECASE,
+            )
+        )
+
         for fee in fee_patterns:
-            fee_clean = re.sub(r"\s+", "", fee)
-            quote_clean = re.sub(r"\s+", "", clean_quote)
+            num_match = re.search(r"\d+(?:\.\d{2})?", fee)
+            if not num_match:
+                continue
+            num = num_match.group(0)
+
+            # Strict numeric boundary: amount must not be a prefix/suffix of a larger number (e.g. 15 vs 150)
+            num_boundary = rf"(?<!\d){re.escape(num)}(?!\d)"
+
+            # If quote explicitly states no fee is required, candidate claiming a fee is ungrounded / requires human review
+            if no_fee_disclaimer:
+                return False, "FEE_NOT_IN_SUPPORTING_QUOTE"
+
             has_fee_evidence = False
-            # Check exact currency + amount substring match in quote
-            if fee_clean in quote_clean:
-                has_fee_evidence = True
-            else:
-                num_match = re.search(r"\d+", fee)
-                if num_match:
-                    num = num_match.group(0)
-                    # Require explicit fee/monetary context around that number in the quote
-                    # (Prevent bare numbers in "15 teachers" or "grade 10" from satisfying a fee claim)
-                    fee_ctx = rf"(?:\$|৳|\btk\b|\bdollars?\b|\bfee\b|\bfees\b|\bcost\b|\bcharge\b|\bcharges\b|\bটাকা\b)\s*{num}|{num}\s*(?:\$|৳|\btk\b|\bdollars?\b|\bটাকা\b|\btk\b)"
-                    if re.search(fee_ctx, norm_quote, re.IGNORECASE):
-                        has_fee_evidence = True
+
+            # Check explicit currency symbol match with strict numeric boundary: e.g. $15, ৳15
+            if "$" in fee:
+                if re.search(rf"\$\s*{num_boundary}", norm_quote):
+                    has_fee_evidence = True
+            elif "৳" in fee or "tk" in fee:
+                if re.search(rf"(?:৳|\btk\b)\s*{num_boundary}|{num_boundary}\s*(?:৳|\btk\b)", norm_quote):
+                    has_fee_evidence = True
+            elif "dollar" in fee:
+                if re.search(rf"{num_boundary}\s*dollars?|\$\s*{num_boundary}", norm_quote):
+                    has_fee_evidence = True
+            elif "টাকা" in fee:
+                if re.search(rf"{num_boundary}\s*টাকা|৳\s*{num_boundary}", norm_quote):
+                    has_fee_evidence = True
+
+            # If not matched directly by symbol, check if the bounded number appears adjacent to monetary context
+            if not has_fee_evidence:
+                fee_ctx = rf"(?:\$|৳|\btk\b|\bdollars?\b|\bfee\b|\bfees\b|\bcost\b|\bcharge\b|\bcharges\b|\bটাকা\b)\s*(?:of\s+)?{num_boundary}|{num_boundary}\s*(?:\$|৳|\btk\b|\bdollars?\b|\bটাকা\b|\btk\b|\bfee\b|\bfees\b)"
+                if re.search(fee_ctx, norm_quote, re.IGNORECASE):
+                    has_fee_evidence = True
+
             if not has_fee_evidence:
                 return False, "FEE_NOT_IN_SUPPORTING_QUOTE"
 
     # 2. Verify Key Document Requirements
-    cleaned_docs = re.sub(r"\b(fee|document|required|forms?|fee:)\s*", " ", fee_or_docs, flags=re.IGNORECASE)
+    # Note: Strip metadata labels (fee:, document:, required:) but do NOT strip 'forms?' words
+    cleaned_docs = re.sub(r"\b(fee:|required:|fees:|document:|documents?:?)\s*", " ", fee_or_docs, flags=re.IGNORECASE)
     doc_words = [
         w for w in re.sub(r"[^\w\s]", "", cleaned_docs.lower()).split()
-        if len(w) >= 3 and w not in ["student", "students", "teachers", "stated", "none", "each", "team", "final", "before", "with", "from", "and", "the"]
+        if len(w) >= 3 and w not in ["student", "students", "teachers", "stated", "none", "each", "team", "final", "before", "with", "from", "and", "the", "for", "fee", "fees"]
     ]
     if doc_words:
-        # Conservative check: Every material document term must be supported in quote
-        missing = [w for w in doc_words if w not in clean_quote]
+        # Conservative check: Every material document term (including 'form', 'forms', 'declaration', etc.) must be supported in quote
+        quote_words = set(re.findall(r"\b\w+\b", norm_quote))
+        missing = [w for w in doc_words if w not in quote_words]
         if missing:
             return False, "DOCS_NOT_IN_SUPPORTING_QUOTE"
 
@@ -439,21 +469,24 @@ def validate_action_item(notice_text: str, item: Dict[str, Any]) -> Dict[str, An
     role_stop_words = {"all", "the", "and", "for", "with", "teachers", "teacher", "staff", "members"}
     distinguishing_tokens = [t for t in assignee_tokens if t not in role_stop_words]
 
+    quote_word_tokens = set(re.findall(r"\b\w+\b", norm_quote)) if norm_quote else set()
+    notice_word_tokens = set(re.findall(r"\b\w+\b", norm_notice)) if norm_notice else set()
+
     if assignee.upper() in ["NOT STATED", "UNSPECIFIED", "GENERAL", "ALL STAFF", ""]:
         assignee_status = "EXPLICIT_NOT_STATED"
         assignee_grounded = True
-    elif norm_quote and (norm_assignee in norm_quote or (assignee_tokens and all(t in norm_quote for t in assignee_tokens))):
+    elif norm_quote and (re.search(r"\b" + re.escape(norm_assignee) + r"\b", norm_quote) or (assignee_tokens and all(t in quote_word_tokens for t in assignee_tokens))):
         assignee_status = "ROLE_FOUND_IN_QUOTE"
         assignee_grounded = True
-    elif distinguishing_tokens and not any(t in norm_quote for t in distinguishing_tokens) and any(t in norm_notice for t in distinguishing_tokens):
+    elif distinguishing_tokens and not any(t in quote_word_tokens for t in distinguishing_tokens) and any(t in notice_word_tokens for t in distinguishing_tokens):
         # Distinguishing role name (e.g. 'homeroom') is in circular, but absent from this quote!
         assignee_status = "ROLE_NOT_IN_SUPPORTING_QUOTE"
         assignee_grounded = False
-    elif norm_quote and assignee_tokens and any(t in norm_quote for t in assignee_tokens):
-        # Some tokens in quote, but specific grade or role conflicts (e.g. Grade 12 vs Grade 10)
+    elif norm_quote and assignee_tokens and any(t in quote_word_tokens for t in assignee_tokens):
+        # Some tokens in quote, but specific grade or role conflicts (e.g. Grade 1 vs Grade 10)
         assignee_status = "ROLE_PARTIAL_MATCH"
         assignee_grounded = False
-    elif norm_assignee in norm_notice or (assignee_tokens and any(t in norm_notice for t in assignee_tokens)):
+    elif re.search(r"\b" + re.escape(norm_assignee) + r"\b", norm_notice) or (assignee_tokens and any(t in notice_word_tokens for t in assignee_tokens)):
         # Role exists elsewhere in circular, but is absent from this action's evidence quote!
         # Multi-role confusion trap: Assignee assigned to the wrong action
         assignee_status = "ROLE_NOT_IN_SUPPORTING_QUOTE"
