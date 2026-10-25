@@ -317,9 +317,54 @@ document.addEventListener('DOMContentLoaded', () => {
         throw new Error(data.detail || 'Failed to fetch notice from URL.');
       }
 
+      if (data.is_scanned_pdf && data.images && data.images.length > 0) {
+        // Automatically switch to Photo OCR panel and trigger Tesseract OCR!
+        setActiveTab(tabPhotoOcr);
+        urlIngestPanel.style.display = 'none';
+        photoOcrPanel.style.display = 'block';
+        ocrThumbImg.src = data.images[0];
+        ocrFileName.textContent = data.title || 'Scanned_Paper_Notice.pdf';
+        ocrStatusText.textContent = 'Scanned paper PDF detected! Running automatic Tesseract OCR...';
+        ocrProgressFill.style.width = '25%';
+
+        if (typeof Tesseract === 'undefined') {
+          ocrStatusText.textContent = 'OCR library loading. Please wait a moment.';
+          return;
+        }
+
+        try {
+          const ocrRes = await Tesseract.recognize(data.images[0], 'eng+ben', {
+            logger: (m) => {
+              if (m.status === 'recognizing text' && m.progress) {
+                const pct = Math.round(m.progress * 100);
+                ocrProgressFill.style.width = `${pct}%`;
+                ocrStatusText.textContent = `Auto-scanning PDF notice: ${pct}% complete...`;
+              }
+            }
+          });
+
+          const ocrText = (ocrRes.data.text || '').trim();
+          ocrProgressFill.style.width = '100%';
+          if (ocrText) {
+            noticeInput.value = ocrText;
+            updateCounters();
+            btnCleanOcr.style.display = 'inline-flex';
+            ocrCleanBadge.style.display = 'none';
+            ocrStatusText.textContent = `✓ Scanned PDF converted (${ocrText.length} characters extracted). Click 'Clean with Gemma' below to repair formatting.`;
+          } else {
+            ocrStatusText.textContent = 'Scanned PDF page image was low resolution. You can type or edit text below.';
+          }
+        } catch (ocrErr) {
+          console.warn('Scanned PDF OCR error:', ocrErr);
+          ocrStatusText.textContent = 'Could not OCR scanned PDF. You can type/edit text below.';
+        }
+        return;
+      }
+
       noticeInput.value = data.text;
       updateCounters();
       alert(`✓ Successfully loaded notice (${data.characters} characters) via ${data.engine}.\nYou can now inspect and click Extract Action Checklist.`);
+
     } catch (err) {
       const is404 = err.message.includes('404');
       const msg = is404

@@ -13,6 +13,7 @@ from typing import Dict, Any, Tuple
 import httpx
 from pypdf import PdfReader
 import io
+import base64
 
 # Block private / internal IP ranges to prevent SSRF
 BLOCKED_IP_NETWORKS = [
@@ -166,12 +167,41 @@ async def fetch_notice_from_url(url_str: str) -> Dict[str, Any]:
                     
                     extracted_text = "\n\n--- Page Break ---\n\n".join(text_parts)
                     if not extracted_text.strip():
+                        # Extract page images from scanned PDF for client-side OCR
+                        image_data_urls = []
+                        try:
+                            for p in reader.pages[:3]:
+                                for img in p.images:
+                                    b64 = base64.b64encode(img.data).decode("utf-8")
+                                    mime = "image/jpeg" if img.name.lower().endswith((".jpg", ".jpeg")) else "image/png"
+                                    image_data_urls.append(f"data:{mime};base64,{b64}")
+                                    if len(image_data_urls) >= 3:
+                                        break
+                                if len(image_data_urls) >= 3:
+                                    break
+                        except Exception as img_err:
+                            pass
+
+                        if image_data_urls:
+                            return {
+                                "success": True,
+                                "is_scanned_pdf": True,
+                                "images": image_data_urls,
+                                "url": url_str,
+                                "title": f"Scanned Paper Circular ({len(reader.pages)} pages)",
+                                "text": "",
+                                "characters": 0,
+                                "source_type": "pdf_scanned_image",
+                                "engine": "Automatic Scanned PDF Ingestion + OCR Bridge"
+                            }
+
                         return {
                             "success": False,
-                            "error": "PDF contains scanned images with no embedded selectable text. Please use the 'Take Photo / Upload' option for OCR.",
+                            "error": "This PDF contains scanned images with no embedded selectable text. Please upload or photograph the notice directly in the 'Take Photo / OCR' tab.",
                             "url": url_str,
                             "source_type": "pdf_scanned"
                         }
+
 
                     return {
                         "success": True,
