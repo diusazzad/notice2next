@@ -151,7 +151,7 @@ Open [http://localhost:8000](http://localhost:8000) in your browser.
 
 Notice2Next is natively configured for:
 - **Render (`render.yaml`):** Automated container build, Uvicorn service, and `/health` monitoring.
-- **GitHub Actions (`.github/workflows/ci.yml`):** Runs the full 38-test pytest suite across Python 3.11 and 3.12 on every push and pull request.
+- **GitHub Actions (`.github/workflows/ci.yml`):** Runs the full 41-test pytest suite across Python 3.11 and 3.12 on every push and pull request.
 
 ---
 

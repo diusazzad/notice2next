@@ -93,11 +93,11 @@ async def fetch_notice_from_url(url_str: str) -> Dict[str, Any]:
             return {
                 "success": True,
                 "url": url_str,
-                "title": "Official Academic Directive (Board Notice)",
+                "title": "Synthetic Board Directive (Benchmark Test Memo)",
                 "text": sample_text,
                 "characters": len(sample_text),
-                "source_type": "official_sample_memo",
-                "engine": "Verified Academic Board Portal"
+                "source_type": "synthetic_sample_memo",
+                "engine": "Synthetic Academic Benchmark Ingestion"
             }
         elif path == "/api/sample-university-circular":
             sample_text = (
@@ -110,11 +110,11 @@ async def fetch_notice_from_url(url_str: str) -> Dict[str, Any]:
             return {
                 "success": True,
                 "url": url_str,
-                "title": "University Examination Directive (Office of the Registrar)",
+                "title": "Synthetic University Directive (Benchmark Test Memo)",
                 "text": sample_text,
                 "characters": len(sample_text),
-                "source_type": "official_sample_memo",
-                "engine": "Verified University Academic Portal"
+                "source_type": "synthetic_sample_memo",
+                "engine": "Synthetic Academic Benchmark Ingestion"
             }
         elif path == "/api/sample-stem-directive":
             sample_text = (
@@ -127,11 +127,11 @@ async def fetch_notice_from_url(url_str: str) -> Dict[str, Any]:
             return {
                 "success": True,
                 "url": url_str,
-                "title": "STEM Fair Memorandum (Science & Technology Cell)",
+                "title": "Synthetic STEM Directive (Benchmark Test Memo)",
                 "text": sample_text,
                 "characters": len(sample_text),
-                "source_type": "official_sample_memo",
-                "engine": "Verified STEM Academic Portal"
+                "source_type": "synthetic_sample_memo",
+                "engine": "Synthetic Academic Benchmark Ingestion"
             }
     except Exception:
         pass

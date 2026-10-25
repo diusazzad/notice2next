@@ -166,21 +166,21 @@ def clean_ocr_text_endpoint(req: CleanOCRRequest):
 @app.get("/api/sample-public-notice")
 def get_sample_public_notice():
     """
-    Returns an official, verified academic circular document.
-    Serves as a guaranteed 200 OK test target for web/PDF URL ingestion.
+    Returns a synthetic benchmark demo circular memo.
+    Serves as a guaranteed 200 OK test target for web/PDF URL ingestion evaluation.
     """
     html = """
     <!DOCTYPE html>
     <html lang="en">
     <head>
       <meta charset="UTF-8">
-      <title>Academic Memo — Board of Secondary Education Notice</title>
+      <title>Synthetic Academic Memo — Benchmark Test Notice</title>
     </head>
     <body style="font-family: Arial, sans-serif; line-height: 1.6; max-width: 800px; margin: 2rem auto; padding: 1.5rem; border: 1px solid #ccc;">
       <h2 style="text-align: center; color: #1e3a8a;">BOARD OF INTERMEDIATE & SECONDARY EDUCATION</h2>
-      <h4 style="text-align: center; color: #475569; margin-top: -0.5rem;">OFFICIAL ADMINISTRATIVE DIRECTIVE (REF: BISE-ACAD-2026-904)</h4>
+      <h4 style="text-align: center; color: #475569; margin-top: -0.5rem;">SYNTHETIC EVALUATION DIRECTIVE (REF: BISE-ACAD-2026-904)</h4>
       <p style="font-size: 0.9rem; color: #64748b; border-bottom: 1px solid #e2e8f0; padding-bottom: 0.5rem;">
-        Published: October 21, 2026 | Distribution: All Affiliated Schools & Colleges
+        Published: October 21, 2026 | Distribution: Synthetic Benchmark Test Target
       </p>
       
       <p>It is hereby notified for the information of all Heads of Institutions, Grade 10 Homeroom Teachers, and Examination Coordinators that the final student candidate nomination lists for the upcoming 2027 Secondary Certificate Examinations must be submitted to the Board Controller Office by <strong>Tuesday, November 03, 2026 at 3:30 PM</strong>.</p>
@@ -201,20 +201,20 @@ def get_sample_public_notice():
 @app.get("/api/sample-university-circular")
 def get_sample_university_circular():
     """
-    Public test circular: University semester examination and fees directive.
+    Synthetic benchmark circular: University semester examination and fees directive.
     """
     html = """
     <!DOCTYPE html>
     <html lang="en">
     <head>
       <meta charset="UTF-8">
-      <title>University Examination Directive — Office of the Registrar</title>
+      <title>Synthetic University Directive — Benchmark Test Notice</title>
     </head>
     <body style="font-family: Arial, sans-serif; line-height: 1.6; max-width: 800px; margin: 2rem auto; padding: 1.5rem; border: 1px solid #ccc;">
       <h2 style="text-align: center; color: #1e3a8a;">NATIONAL ACADEMIC CONTROLLER BOARD & UNIVERSITY ADMINISTRATION</h2>
-      <h4 style="text-align: center; color: #475569; margin-top: -0.5rem;">SEMESTER EXAMINATION NOTIFICATION (REF: NUB-EXAM-2026-44)</h4>
+      <h4 style="text-align: center; color: #475569; margin-top: -0.5rem;">SYNTHETIC SEMESTER NOTIFICATION (REF: NUB-EXAM-2026-44)</h4>
       <p style="font-size: 0.9rem; color: #64748b; border-bottom: 1px solid #e2e8f0; padding-bottom: 0.5rem;">
-        Published: October 24, 2026 | Distribution: All Affiliated Departments & Institutes
+        Published: October 24, 2026 | Distribution: Synthetic Benchmark Test Target
       </p>
       
       <p>All Department Heads, Faculty Advisors, and Program Coordinators are hereby instructed that the final student admit card nomination lists for the upcoming 2026 Degree & Honours Final Examinations must be submitted to the Controller Office by <strong>Thursday, November 12, 2026 at 4:00 PM</strong>.</p>
@@ -235,20 +235,20 @@ def get_sample_university_circular():
 @app.get("/api/sample-stem-directive")
 def get_sample_stem_directive():
     """
-    Public test circular: Inter-School Science Fair and Lab Protocol directive.
+    Synthetic benchmark circular: Inter-School Science Fair and Lab Protocol directive.
     """
     html = """
     <!DOCTYPE html>
     <html lang="en">
     <head>
       <meta charset="UTF-8">
-      <title>STEM Fair Memorandum — Science & Technology Cell</title>
+      <title>Synthetic STEM Memorandum — Benchmark Test Notice</title>
     </head>
     <body style="font-family: Arial, sans-serif; line-height: 1.6; max-width: 800px; margin: 2rem auto; padding: 1.5rem; border: 1px solid #ccc;">
       <h2 style="text-align: center; color: #1e3a8a;">INTER-SCHOOL STEM & SCIENCE COMMITTEE</h2>
-      <h4 style="text-align: center; color: #475569; margin-top: -0.5rem;">SCIENCE FAIR & ROBOTICS EXHIBITION MEMORANDUM</h4>
+      <h4 style="text-align: center; color: #475569; margin-top: -0.5rem;">SYNTHETIC SCIENCE FAIR MEMORANDUM</h4>
       <p style="font-size: 0.9rem; color: #64748b; border-bottom: 1px solid #e2e8f0; padding-bottom: 0.5rem;">
-        Published: October 25, 2026 | For Immediate Circulation
+        Published: October 25, 2026 | Distribution: Synthetic Benchmark Test Target
       </p>
       
       <p>1. All Grade 9 and Grade 10 Science Teachers must submit the finalized list of participating student project teams to the Central Exhibition Committee by <strong>Friday, November 06, 2026 at 3:00 PM</strong>.</p>

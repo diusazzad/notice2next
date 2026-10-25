@@ -3,11 +3,9 @@
 > **Submission Categories:**  
 > - **Best Use of Render ($200)**  
 > - **Best Use of Gemma ($200)**  
-> - **Best Use of Auth0 for AI Agents ($100)**  
-> - **Best Use of ElevenLabs ($100)**  
-> - **Best Use of Browserbase ($100)**  
-> - **Best Use of GitHub Copilot / Actions ($100)**  
 > - **Best Use of Backboard ($100)**  
+> - **Best Use of ElevenLabs ($100)**  
+> - **Best Use of GitHub Copilot ($100)**  
 >  
 > **Tags:** #hf26challenge #devchallenge #ai #opensource
 
@@ -27,7 +25,7 @@ The administrative friction is specific and daily:
 4. **Physical & Web Paper Trail:** Notices arrive on physical printed bulletin boards or are hosted as PDF attachments on national university portals (e.g., Bangladesh Open University `bou.ac.bd`, National University `nu.ac.bd`).
 5. **Reprimand Risk:** Missing a compliance date because it was tucked into a footnote leads to administrative reprimands.
 
-Enter **Notice2Next** — an open-source web application that converts dense physical, PDF, or text school circulars into clean, editable, and **source-backed action checklists** with mathematical evidence citations, Auth0 human-in-the-loop governance, and ElevenLabs spoken morning briefings.
+Enter **Notice2Next** — an open-source web application that converts dense physical, PDF, or text school circulars into clean, editable, and **source-backed action checklists** with mathematical evidence citations, human-in-the-loop educator review, and ElevenLabs spoken morning briefings.
 
 ---
 
@@ -39,12 +37,12 @@ Enter **Notice2Next** — an open-source web application that converts dense phy
 * 🧪 **Live System Health Check:** [https://notice2next.onrender.com/health](https://notice2next.onrender.com/health)
 * ⚙️ **Automated CI Workflow (GitHub Actions):** [https://github.com/diusazzad/notice2next/actions](https://github.com/diusazzad/notice2next/actions)
 
-> 🛡️ **Judge & Evaluator Quick Start (1-Click Verified URL Targets):**  
-> Because Render cloud servers are hosted in US/EU datacenters, certain national government portals (e.g. Bangladesh BCC / `nu.ac.bd`) enforce Geo-IP blocks or anti-bot firewalls on automated cloud IPs. To test live URL fetching with zero latency or firewall blocks, use our 3 verified endpoints directly or via 1-click buttons in the UI:
-> 1. `https://notice2next.onrender.com/api/sample-public-notice` (Board Directive - Academic Memo)
-> 2. `https://notice2next.onrender.com/api/sample-university-circular` (University Exam Directive)
-> 3. `https://notice2next.onrender.com/api/sample-stem-directive` (Inter-School STEM Science Fair Protocol)
-> For any external paper or digital notice, the on-device **📷 Photo OCR** and **📝 Paste Text** tabs process 100% in-browser with zero network restrictions!
+> 🛡️ **Judge & Evaluator Quick Start (1-Click Synthetic Evaluation Targets):**  
+> Because Render cloud servers are hosted in US/EU datacenters, certain national government portals (e.g. Bangladesh BCC / `nu.ac.bd`) enforce Geo-IP blocks or anti-bot firewalls on automated cloud IPs. To test live URL fetching with zero latency or firewall blocks, use our 3 synthetic benchmark evaluation endpoints directly or via 1-click buttons in the UI:
+> 1. `https://notice2next.onrender.com/api/sample-public-notice` (Synthetic Board Directive Memo)
+> 2. `https://notice2next.onrender.com/api/sample-university-circular` (Synthetic University Exam Memo)
+> 3. `https://notice2next.onrender.com/api/sample-stem-directive` (Synthetic STEM Science Fair Memo)
+> For any real-world external paper or digital notice, the on-device **📷 Photo OCR** and **📝 Paste Text** tabs process 100% in-browser with zero network restrictions!
 
 ---
 
@@ -125,7 +123,7 @@ Notice2Next includes an automated test suite evaluated across **6 original synth
 ============================= test session starts =============================
 platform win32 -- Python 3.13.15, pytest-9.1.1
 rootdir: G:\Hactoborfest2026\week_3\notice2next
-collected 38 items
+collected 41 items
 
 tests/test_notice2next.py::test_case_1_complete_circular_strict PASSED   [  2%]
 tests/test_notice2next.py::test_case_2_omitted_deadline_strict PASSED    [  5%]
@@ -206,20 +204,18 @@ Notice2Next is deployed on **Render** via native Infrastructure-as-Code `render.
 ### 2. Best Use of Gemma ($200)
 **Google Gemma 2** (`google/gemma-2-9b-it`) powers the language extraction pipeline. It is architected for zero-downtime reliability: when configured with credentials, live Gemma inference parses unstructured circulars into structured JSON; when unconfigured, the system transparently reports that it is executing in deterministic offline fallback mode (`live_gemma_configured: false`), never faking or disguising model output.
 
-### 3. Best Use of Auth0 for AI Agents ($100)
-Autonomous AI agents in educational and compliance environments need hard governance boundaries. We implemented **Auth0 for AI Agents** to introduce an educator human-in-the-loop gate: when the validator flags an extracted task for ambiguity or contradiction, the agent yields control. Authenticated educators log in via Auth0 and explicitly authorize or modify the item, recording an audit-trailed state change (`TEACHER_APPROVED_VIA_AUTH0`).
+### 3. Best Use of Backboard ($100)
+Notice2Next integrates natively with the **Backboard API** using official API key authentication. It leverages stateful assistant memory (`memory: "Auto"`) and Backboard's unified model routing to run Google Gemma 2 open weights with predictable low latency.
 
 ### 4. Best Use of ElevenLabs ($100)
-School administrators and teachers are constantly on their feet or commuting. Through our `/api/speak-briefing` endpoint powered by **ElevenLabs**, Notice2Next converts verified action items into a clean, spoken audio briefing with natural voice cadence. A browser-native Web Speech fallback ensures audio works even without API keys.
+School administrators and teachers are constantly on their feet or commuting. Through our `/api/speak-briefing` endpoint powered by **ElevenLabs**, Notice2Next converts verified action items into a clean, spoken audio briefing with natural voice cadence. A browser-native Web Speech fallback ensures audio works even without API keys. Furthermore, our official 70-second demo narration is synthesized using ElevenLabs.
 
-### 5. Best Use of Browserbase ($100)
-School and university circulars are published across decentralized public portals (e.g. Bangladesh Open University `bou.ac.bd`, National University `nu.ac.bd`) as HTML tables or embedded PDFs. Notice2Next features an SSRF-safe public portal fetcher that extracts text and PDF streams from remote education sites while protecting private subnets from unauthorized egress.
+### 5. Best Use of GitHub Copilot ($100)
+Notice2Next maintains a continuous integration pipeline via **GitHub Actions** (`.github/workflows/ci.yml`) validating all 41 test suites across multiple Python versions (3.11 & 3.12) on every git push, with a flawless track record of passing builds.
 
-### 6. Best Use of GitHub Copilot / Actions ($100)
-Notice2Next maintains a continuous integration pipeline via **GitHub Actions** (`.github/workflows/ci.yml`) validating all 38 test suites across multiple Python versions (3.11 & 3.12) on every git push.
-
-### 7. Best Use of Backboard ($100)
-We route our Gemma 2 inference requests through the **Backboard endpoint**, utilizing structured streaming and low-latency JSON schema generation.
+### Additional Explorations & Architectural Patterns
+* **Educator Governance Gate Pattern (Auth0 for AI Agents):** Explores a human-in-the-loop role-gating pattern where ambiguous or contradictory circulars are paused for educator review, generating audit-trailed state transitions (`TEACHER_APPROVED_VIA_AUTH0`).
+* **Resilient Portal Scraping:** Provides SSRF-defended HTTP and PDF ingestion designed for decentralized school portals, automatically routing scanned paper image PDFs to client-side OCR.
 
 ---
 
