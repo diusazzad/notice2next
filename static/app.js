@@ -377,6 +377,7 @@ document.addEventListener('DOMContentLoaded', () => {
       }
 
       if (data.is_scanned_pdf && data.images && data.images.length > 0) {
+        showToast('Scanned paper PDF fetched from URL. Running automatic in-browser OCR...', 'info', 'Scanned PDF Ingested');
         // Automatically switch to Photo OCR panel and trigger Tesseract OCR!
         setActiveTab(tabPhotoOcr);
         urlIngestPanel.style.display = 'none';
@@ -410,6 +411,7 @@ document.addEventListener('DOMContentLoaded', () => {
             btnCleanOcr.style.display = 'inline-flex';
             ocrCleanBadge.style.display = 'none';
             ocrStatusText.textContent = `✓ Scanned PDF converted (${ocrText.length} characters extracted). Click 'Clean with Gemma' below to repair formatting.`;
+            showToast(`Scanned PDF converted (${ocrText.length} characters extracted). You can now click "Extract Action Checklist".`, 'success', 'OCR Complete');
           } else {
             ocrStatusText.textContent = 'Scanned PDF page image was low resolution. You can type or edit text below.';
           }

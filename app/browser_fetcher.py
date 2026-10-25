@@ -232,25 +232,25 @@ async def fetch_notice_from_url(url_str: str) -> Dict[str, Any]:
                     "error": f"Failed to parse PDF document: {str(pdf_err)}",
                     "url": url_str
                 }
-            else:
-                # HTML Web Page Notice
-                html_text = clean_html_to_text(response.text)
-                title_match = re.search(r"<title[^>]*>(.*?)</title>", response.text, re.IGNORECASE | re.DOTALL)
-                title = title_match.group(1).strip() if title_match else "Official Web Notice"
+        else:
+            # HTML Web Page Notice
+            html_text = clean_html_to_text(response.text)
+            title_match = re.search(r"<title[^>]*>(.*?)</title>", response.text, re.IGNORECASE | re.DOTALL)
+            title = title_match.group(1).strip() if title_match else "Official Web Notice"
 
-                # Truncate to reasonable circular length (max 15,000 characters)
-                if len(html_text) > 15000:
-                    html_text = html_text[:15000] + "\n\n... [Notice truncated to 15,000 characters] ..."
+            # Truncate to reasonable circular length (max 15,000 characters)
+            if len(html_text) > 15000:
+                html_text = html_text[:15000] + "\n\n... [Notice truncated to 15,000 characters] ..."
 
-                return {
-                    "success": True,
-                    "url": url_str,
-                    "title": title,
-                    "text": html_text,
-                    "source_type": "html",
-                    "characters": len(html_text),
-                    "engine": "Browserbase / Verified Web Ingestion Engine"
-                }
+            return {
+                "success": True,
+                "url": url_str,
+                "title": title,
+                "text": html_text,
+                "source_type": "html",
+                "characters": len(html_text),
+                "engine": "Browserbase / Verified Web Ingestion Engine"
+            }
 
     except httpx.TimeoutException:
         return {
