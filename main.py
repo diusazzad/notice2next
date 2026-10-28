@@ -5,10 +5,12 @@ Hacktoberfest 2026 Week 3 Official Entry.
 """
 
 import os
+import hmac
 from typing import List, Dict, Any, Optional
-from fastapi import FastAPI, HTTPException, Response, Request
+from fastapi import FastAPI, HTTPException, Response, Request, Header
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, PlainTextResponse, JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from pydantic import BaseModel, Field
 
 from app.extractor import extract_action_items, clean_ocr_text, BACKBOARD_API_KEY, GEMMA_MODEL
@@ -24,21 +26,83 @@ app = FastAPI(
     version="1.0.0"
 )
 
-MAX_REQUEST_BODY_BYTES = 2 * 1024 * 1024  # 2MB maximum payload guard
+MAX_REQUEST_BODY_BYTES = 2 * 1024 * 1024  # 2MB maximum payload guard (2,097,152 bytes)
 
-@app.middleware("http")
-async def limit_request_size(request: Request, call_next):
-    content_length = request.headers.get("content-length")
-    if content_length:
+class RequestSizeLimitExceeded(StarletteHTTPException):
+    def __init__(self):
+        super().__init__(
+            status_code=413,
+            detail="Request payload exceeds maximum allowed size (2MB)."
+        )
+
+class RequestSizeLimitMiddleware:
+    """
+    ASGI middleware enforcing strict request body size limits on both:
+    1. Early Content-Length header checks (optimization).
+    2. Real-time received bytes counter across streaming / chunked Transfer-Encoding bodies.
+    """
+    def __init__(self, app, max_bytes: int = MAX_REQUEST_BODY_BYTES):
+        self.app = app
+        self.max_bytes = max_bytes
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        # 1. Early Content-Length optimization
+        headers = dict(scope.get("headers", []))
+        content_length = headers.get(b"content-length")
+        if content_length:
+            try:
+                if int(content_length.decode("latin-1")) > self.max_bytes:
+                    resp = JSONResponse(
+                        status_code=413,
+                        content={"detail": "Request payload exceeds maximum allowed size (2MB)."}
+                    )
+                    await resp(scope, receive, send)
+                    return
+            except ValueError:
+                pass
+
+        # 2. Actual received bytes counter across streaming / chunked bodies
+        total_bytes = 0
+        response_started = False
+
+        async def limited_receive():
+            nonlocal total_bytes
+            message = await receive()
+            if message["type"] == "http.request":
+                body = message.get("body", b"")
+                total_bytes += len(body)
+                if total_bytes > self.max_bytes:
+                    raise RequestSizeLimitExceeded()
+            return message
+
+        async def tracking_send(message):
+            nonlocal response_started
+            if message["type"] == "http.response.start":
+                response_started = True
+            await send(message)
+
         try:
-            if int(content_length) > MAX_REQUEST_BODY_BYTES:
-                return JSONResponse(
+            await self.app(scope, limited_receive, tracking_send)
+        except RequestSizeLimitExceeded:
+            if not response_started:
+                resp = JSONResponse(
                     status_code=413,
                     content={"detail": "Request payload exceeds maximum allowed size (2MB)."}
                 )
-        except ValueError:
-            pass
-    return await call_next(request)
+                await resp(scope, receive, send)
+
+app.add_middleware(RequestSizeLimitMiddleware, max_bytes=MAX_REQUEST_BODY_BYTES)
+
+@app.exception_handler(RequestSizeLimitExceeded)
+async def handle_size_limit_exceeded(request: Request, exc: RequestSizeLimitExceeded):
+    return JSONResponse(
+        status_code=413,
+        content={"detail": "Request payload exceeds maximum allowed size (2MB)."}
+    )
 
 # Mount static assets
 static_dir = os.path.join(os.path.dirname(__file__), "static")
@@ -291,17 +355,22 @@ def run_live_benchmark(force_offline: bool = True):
     results = []
     total_samples = len(SAMPLE_NOTICES)
     passed_cases = 0
-    engine_name = "Unknown"
-    live_called = False
+    engine_name = "Deterministic Heuristic Engine (Offline / Local Mode)"
+
+    remote_calls_attempted = 0
+    remote_calls_succeeded = 0
 
     for sample in SAMPLE_NOTICES:
         text = sample["text"]
         expected_count = sample["expected_items_count"]
         sample_id = sample["id"]
-        
+
         ext = extract_action_items(text, force_offline=force_offline)
         engine_name = ext["engine"]
-        live_called = ext["live_model_called"]
+        if ext.get("remote_call_attempted"):
+            remote_calls_attempted += 1
+        if ext.get("live_model_called"):
+            remote_calls_succeeded += 1
         
         val = validate_extracted_checklist(text, ext["raw_items"])
         items = val["items"]
@@ -410,7 +479,9 @@ def run_live_benchmark(force_offline: bool = True):
 
     return {
         "engine_evaluated": engine_name,
-        "live_model_called": live_called,
+        "live_model_called": remote_calls_succeeded > 0,
+        "remote_calls_attempted": remote_calls_attempted,
+        "remote_calls_succeeded": remote_calls_succeeded,
         "total_test_cases": total_samples,
         "passed_cases": passed_cases,
         "pass_rate_percentage": pass_rate,
@@ -424,17 +495,24 @@ def run_live_benchmark(force_offline: bool = True):
 
 
 @app.get("/api/benchmark")
-def get_benchmark(allow_live: bool = False, benchmark_key: Optional[str] = None):
+def get_benchmark(
+    allow_live: bool = False,
+    x_benchmark_key: Optional[str] = Header(None, alias="X-Benchmark-Key")
+):
     """
     Public benchmark endpoint. Defaults to deterministic offline evaluation fixtures (zero provider cost).
-    Live cloud inference requires explicit authorization via BENCHMARK_ADMIN_KEY.
+    Live cloud inference requires explicit authorization via the X-Benchmark-Key header.
     """
-    admin_key = os.environ.get("BENCHMARK_ADMIN_KEY", "").strip()
-    can_run_live = False
-    if allow_live and admin_key and benchmark_key == admin_key:
-        can_run_live = True
+    if allow_live:
+        admin_key = os.environ.get("BENCHMARK_ADMIN_KEY", "").strip()
+        if not admin_key or not x_benchmark_key or not hmac.compare_digest(x_benchmark_key, admin_key):
+            raise HTTPException(
+                status_code=401,
+                detail="Unauthorized: Invalid or missing X-Benchmark-Key header for live benchmark execution."
+            )
+        return run_live_benchmark(force_offline=False)
 
-    return run_live_benchmark(force_offline=not can_run_live)
+    return run_live_benchmark(force_offline=True)
 
 
 if __name__ == "__main__":

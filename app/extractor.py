@@ -307,12 +307,14 @@ def extract_action_items(notice_text: str, force_offline: bool = False) -> Dict[
     """
     start_time = time.time()
     live_called = False
+    remote_attempted = False
     engine_name = "Deterministic Heuristic Engine (Offline / Local Mode)"
     model_name = "notice2next-rule-engine-v1"
 
     raw_items = None
 
     if not force_offline and BACKBOARD_API_KEY and not BACKBOARD_API_KEY.startswith("your_"):
+        remote_attempted = True
         raw_items = extract_with_gemma_api(notice_text)
         if raw_items is not None:
             live_called = True
@@ -327,6 +329,7 @@ def extract_action_items(notice_text: str, force_offline: bool = False) -> Dict[
     return {
         "engine": engine_name,
         "model_name": model_name,
+        "remote_call_attempted": remote_attempted,
         "live_model_called": live_called,
         "latency_ms": latency_ms,
         "raw_items": raw_items

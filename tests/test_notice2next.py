@@ -820,6 +820,82 @@ def test_export_csv_items_count_bounded():
     assert res.status_code == 422
 
 
+def test_request_body_oversized_with_content_length():
+    """Verify that an oversized body with a valid, oversized Content-Length is rejected with 413 before extraction."""
+    from unittest.mock import patch
+    with patch("main.extract_action_items") as mock_extract:
+        oversized = b'{"text": "' + b"X" * (2 * 1024 * 1024 + 100) + b'"}'
+        res = client.post(
+            "/api/extract",
+            content=oversized,
+            headers={"Content-Length": str(len(oversized)), "Content-Type": "application/json"}
+        )
+        assert res.status_code == 413
+        assert "exceeds maximum allowed size" in res.json()["detail"]
+        mock_extract.assert_not_called()
+
+
+def test_request_body_oversized_chunked_without_content_length():
+    """Verify that an oversized chunked body without Content-Length is rejected with 413 before extraction."""
+    from unittest.mock import patch
+    with patch("main.extract_action_items") as mock_extract:
+        def chunk_gen():
+            total = 2097315  # 2,097,315 bytes (> 2MB)
+            chunk_size = 65536
+            sent = 0
+            yield b'{"text": "Valid notice text", "ignored": "'
+            sent += len(b'{"text": "Valid notice text", "ignored": "')
+            while sent < total - 2:
+                to_send = min(chunk_size, total - 2 - sent)
+                yield b"C" * to_send
+                sent += to_send
+            yield b'"}'
+
+        res = client.post(
+            "/api/extract",
+            content=chunk_gen(),
+            headers={"Transfer-Encoding": "chunked", "Content-Type": "application/json"}
+        )
+        assert res.status_code == 413
+        assert "exceeds maximum allowed size" in res.json()["detail"]
+        mock_extract.assert_not_called()
+
+
+def test_request_body_exact_limit_allowed():
+    """Verify that a body exactly at the configured 2MB limit (2,097,152 bytes) is accepted."""
+    limit = 2 * 1024 * 1024
+    prefix = b'{"text": "Grade 9 teachers must submit lab reports by Friday.", "padding": "'
+    suffix = b'"}'
+    padding_len = limit - len(prefix) - len(suffix)
+    exact_body = prefix + (b"Z" * padding_len) + suffix
+    assert len(exact_body) == limit
+
+    res = client.post(
+        "/api/extract",
+        content=exact_body,
+        headers={"Content-Length": str(limit), "Content-Type": "application/json"}
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert "items" in data
+
+
+def test_request_body_oversized_ignored_json_field():
+    """Verify that a body exceeding 2MB with an ignored extra JSON field is rejected with 413 before extraction."""
+    from unittest.mock import patch
+    with patch("main.extract_action_items") as mock_extract:
+        # text field itself is small (40 chars), but extra padding pushes total body over 2MB
+        oversized_json = b'{"text": "Small notice text", "unrelated_payload": "' + b"P" * (2 * 1024 * 1024 + 500) + b'"}'
+        res = client.post(
+            "/api/extract",
+            content=oversized_json,
+            headers={"Content-Length": str(len(oversized_json)), "Content-Type": "application/json"}
+        )
+        assert res.status_code == 413
+        assert "exceeds maximum allowed size" in res.json()["detail"]
+        mock_extract.assert_not_called()
+
+
 def test_api_benchmark_defaults_to_deterministic_offline_fixture():
     """Verify that GET /api/benchmark runs deterministically without live model invocation."""
     res = client.get("/api/benchmark")
@@ -829,23 +905,58 @@ def test_api_benchmark_defaults_to_deterministic_offline_fixture():
     assert data["passed_cases"] == 6
     assert data["pass_rate_percentage"] == 100.0
     assert data["live_model_called"] is False
+    assert data["remote_calls_attempted"] == 0
+    assert data["remote_calls_succeeded"] == 0
     assert "Deterministic Heuristic Engine" in data["engine_evaluated"]
 
 
-def test_api_benchmark_unauthorized_live_flag_rejected():
-    """Verify that GET /api/benchmark?allow_live=true without admin key stays offline."""
-    res = client.get("/api/benchmark?allow_live=true&benchmark_key=invalid_secret")
-    assert res.status_code == 200
-    data = res.json()
-    assert data["live_model_called"] is False
+def test_api_benchmark_offline_never_invokes_remote_provider():
+    """Prove that offline benchmark requests never invoke the live provider even if credentials exist."""
+    from unittest.mock import patch
+    with patch("app.extractor.BACKBOARD_API_KEY", "espr_mock_live_token"):
+        with patch("app.extractor.extract_with_gemma_api") as mock_gemma:
+            res = client.get("/api/benchmark")
+            assert res.status_code == 200
+            data = res.json()
+            assert data["live_model_called"] is False
+            assert data["remote_calls_attempted"] == 0
+            assert data["remote_calls_succeeded"] == 0
+            mock_gemma.assert_not_called()
 
 
-def test_request_body_size_limit_middleware():
-    """Verify that request with Content-Length exceeding 2MB returns 413."""
-    res = client.post(
-        "/api/extract",
-        content=b"dummy",
-        headers={"Content-Length": "3000000", "Content-Type": "application/json"}
-    )
-    assert res.status_code == 413
-    assert "exceeds maximum allowed size" in res.json()["detail"]
+def test_api_benchmark_allow_live_unauthorized_rejected():
+    """Verify that requesting allow_live=true without or with invalid X-Benchmark-Key returns 401."""
+    import os
+    from unittest.mock import patch
+
+    # 1. No header provided -> 401
+    res1 = client.get("/api/benchmark?allow_live=true")
+    assert res1.status_code == 401
+    assert "Unauthorized" in res1.json()["detail"]
+
+    # 2. Invalid header provided -> 401
+    with patch.dict(os.environ, {"BENCHMARK_ADMIN_KEY": "correct_secret_token"}):
+        res2 = client.get("/api/benchmark?allow_live=true", headers={"X-Benchmark-Key": "wrong_key"})
+        assert res2.status_code == 401
+        assert "Unauthorized" in res2.json()["detail"]
+
+    # 3. Query string benchmark_key is NOT accepted -> 401
+    with patch.dict(os.environ, {"BENCHMARK_ADMIN_KEY": "correct_secret_token"}):
+        res3 = client.get("/api/benchmark?allow_live=true&benchmark_key=correct_secret_token")
+        assert res3.status_code == 401
+
+
+def test_api_benchmark_allow_live_authorized_accounting():
+    """Verify that authorized live benchmark accurately accounts for remote calls."""
+    import os
+    from unittest.mock import patch
+
+    with patch.dict(os.environ, {"BENCHMARK_ADMIN_KEY": "valid_admin_secret"}):
+        with patch("app.extractor.BACKBOARD_API_KEY", "espr_mock_api_key"):
+            with patch("app.extractor.extract_with_gemma_api", return_value=[{"action": "Duty", "assignee": "Science Teachers", "deadline": "October 29", "fee_or_docs": "$15", "source_quote": "Science Teachers"}]):
+                res = client.get("/api/benchmark?allow_live=true", headers={"X-Benchmark-Key": "valid_admin_secret"})
+                assert res.status_code == 200
+                data = res.json()
+                assert data["remote_calls_attempted"] == 6
+                assert data["remote_calls_succeeded"] == 6
+                assert data["live_model_called"] is True
