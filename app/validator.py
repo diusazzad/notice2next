@@ -440,30 +440,40 @@ def detect_contradictions(text_segment: str) -> bool:
     return False
 
 
-def validate_action_item(notice_text: str, item: Dict[str, Any]) -> Dict[str, Any]:
+def validate_action_item(notice_text: str, item: Dict[str, Any], verify_quotes: bool = True) -> Dict[str, Any]:
     """
     Validates a single extracted action item across separate evidence streams:
-    1. Quote evidence (strict substring check)
+    1. Quote evidence (strict substring check, or bypassed if verify_quotes=False)
     2. Action intent (flagged that semantics must be verified by educator)
     3. Assignee grounding
     4. Deadline grounding
     5. Contradiction detection
     """
-    action_text = item.get("action", "").strip()
-    assignee = item.get("assignee", "NOT STATED").strip()
-    deadline = item.get("deadline", "NOT STATED").strip()
-    fee_or_docs = item.get("fee_or_docs", "NOT STATED").strip()
-    source_quote = item.get("source_quote", "").strip()
+    if not isinstance(item, dict):
+        item = {"action": str(item) if item else "Unspecified Action"}
+
+    action_text = str(item.get("action") or "").strip()
+    assignee = str(item.get("assignee") or "NOT STATED").strip()
+    deadline = str(item.get("deadline") or "NOT STATED").strip()
+    fee_or_docs = str(item.get("fee_or_docs") or "NOT STATED").strip()
+    source_quote = str(item.get("source_quote") or "").strip()
 
     # 1. Verify Source Quote
-    is_strict_quote, quote_category, quote_score = verify_source_quote(notice_text, source_quote)
+    if verify_quotes:
+        is_strict_quote, quote_category, quote_score = verify_source_quote(notice_text, source_quote)
+    else:
+        is_strict_quote = False
+        quote_category = "UNVERIFIED_BY_REQUEST"
+        quote_score = 0.0
+
+    effective_quote = source_quote if (verify_quotes and source_quote) else notice_text
 
     # 2. Verify Deadline
-    deadline_ok, deadline_category = verify_deadline(notice_text, source_quote, deadline)
+    deadline_ok, deadline_category = verify_deadline(notice_text, effective_quote, deadline)
 
-    # 3. Verify Assignee Grounding (Strictly against Supporting Quote)
+    # 3. Verify Assignee Grounding (Strictly against Supporting Quote if verify_quotes, else Notice Text)
     norm_notice = normalize_whitespace(notice_text).lower()
-    norm_quote = normalize_whitespace(source_quote).lower() if source_quote else ""
+    norm_quote = normalize_whitespace(effective_quote).lower() if effective_quote else ""
     norm_assignee = normalize_whitespace(assignee).lower()
     assignee_tokens = [t for t in norm_assignee.split() if (len(t) > 2 or t.isdigit()) and t not in ["all", "the", "and", "for", "with"]]
     role_stop_words = {"all", "the", "and", "for", "with", "teachers", "teacher", "staff", "members"}
@@ -504,7 +514,7 @@ def validate_action_item(notice_text: str, item: Dict[str, Any]) -> Dict[str, An
     )
 
     # 5. Verify Fee or Required Documents
-    fee_ok, fee_category = verify_fee_or_docs(source_quote, fee_or_docs)
+    fee_ok, fee_category = verify_fee_or_docs(effective_quote, fee_or_docs)
 
     # 6. Build Independent Evidence Dict
     field_evidence = {
@@ -512,7 +522,9 @@ def validate_action_item(notice_text: str, item: Dict[str, Any]) -> Dict[str, An
             "is_strict_substring": is_strict_quote,
             "category": quote_category,
             "display_label": "Verbatim Quote Found" if is_strict_quote else (
-                "Punctuation Differs (Review)" if quote_category == "PUNCTUATION_STRIPPED_WORD_MATCH" else "Quote Unverified"
+                "Quote Verification Skipped" if not verify_quotes else (
+                    "Punctuation Differs (Review)" if quote_category == "PUNCTUATION_STRIPPED_WORD_MATCH" else "Quote Unverified"
+                )
             )
         },
         "action": {
@@ -538,7 +550,33 @@ def validate_action_item(notice_text: str, item: Dict[str, Any]) -> Dict[str, An
     }
 
     # 7. Overall Verification Status & Badge
-    if is_contradictory:
+    if not verify_quotes:
+        if is_contradictory:
+            status = "FLAGGED_FOR_HUMAN_REVIEW"
+            badge = "warning"
+            badge_text = "⚠️ Contradiction Detected (Review)"
+            notes = "Contradictory timing or revision notice detected. Teacher review required before acting."
+        elif not deadline_ok:
+            status = "FLAGGED_FOR_HUMAN_REVIEW"
+            badge = "warning"
+            badge_text = "⚠️ Deadline Warning"
+            notes = f"Deadline verification issue: {deadline_category}."
+        elif not assignee_grounded:
+            status = "FLAGGED_FOR_HUMAN_REVIEW"
+            badge = "warning"
+            badge_text = "⚠️ Role Warning"
+            notes = "Assigned role could not be grounded in circular text."
+        elif not fee_ok:
+            status = "FLAGGED_FOR_HUMAN_REVIEW"
+            badge = "warning"
+            badge_text = "⚠️ Fee/Doc Warning"
+            notes = f"Requirement verification issue: {fee_category}."
+        else:
+            status = "UNVERIFIED_BY_REQUEST"
+            badge = "quote-skipped"
+            badge_text = "ℹ️ Quote Check Skipped"
+            notes = "Quote substring verification was skipped per request parameter. Action, deadline, and role were parsed."
+    elif is_contradictory:
         status = "FLAGGED_FOR_HUMAN_REVIEW"
         badge = "warning"
         badge_text = "⚠️ Contradiction Detected (Review)"
@@ -619,15 +657,26 @@ def validate_action_item(notice_text: str, item: Dict[str, Any]) -> Dict[str, An
     }
 
 
-def validate_extracted_checklist(notice_text: str, items: List[Dict[str, Any]]) -> Dict[str, Any]:
+def validate_extracted_checklist(
+    notice_text: str,
+    items: List[Dict[str, Any]],
+    verify_quotes: bool = True
+) -> Dict[str, Any]:
     """
     Validates a list of extracted action items and provides a summary report.
     """
-    disclaimer_text = (
-        "Source Evidence Check Notice: Verbatim quote matching confirms that cited text appears in the circular. "
-        "It does not guarantee semantic completeness, legal authority, or that the action description accurately represents school intent. "
-        "Teachers must review all items before taking action."
-    )
+    if verify_quotes:
+        disclaimer_text = (
+            "Source Evidence Check Notice: Verbatim quote matching confirms that cited text appears in the circular. "
+            "It does not guarantee semantic completeness, legal authority, or that the action description accurately represents school intent. "
+            "Teachers must review all items before taking action."
+        )
+    else:
+        disclaimer_text = (
+            "Source Evidence Check Notice: Quote verification was disabled for this extraction. "
+            "Extracted items have not been verified against verbatim substrings in the circular. "
+            "Teachers must manually review all instructions and deadlines before taking action."
+        )
 
     if not items:
         return {
@@ -647,9 +696,11 @@ def validate_extracted_checklist(notice_text: str, items: List[Dict[str, Any]]) 
     flagged_count = 0
 
     for idx, raw_item in enumerate(items, start=1):
-        if not raw_item.get("id"):
+        if not isinstance(raw_item, dict):
+            raw_item = {"action": str(raw_item), "id": f"act_{idx}"}
+        elif not raw_item.get("id"):
             raw_item["id"] = f"act_{idx}"
-        val_item = validate_action_item(notice_text, raw_item)
+        val_item = validate_action_item(notice_text, raw_item, verify_quotes=verify_quotes)
         if val_item["validation_status"] == "VERIFIED_QUOTE_GROUNDED":
             verified_count += 1
         else:

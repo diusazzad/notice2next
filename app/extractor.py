@@ -37,6 +37,87 @@ Rules:
 No markdown prose, no conversation."""
 
 
+def sanitize_raw_action_items(raw_data: Any) -> List[Dict[str, Any]]:
+    """
+    Validates and normalizes raw action items returned by Gemma 2 or fallback engines.
+    Guarantees that downstream validator receives a strictly typed list of action dicts:
+    - Converts non-dict items and drops unparseable structures.
+    - Ensures action, assignee, deadline, fee_or_docs, and source_quote are clean strings.
+    - Fills in standard defaults ("NOT STATED", empty quote) when fields are missing or null.
+    """
+    if not raw_data:
+        return []
+
+    items_to_process = []
+    if isinstance(raw_data, dict):
+        if "actions" in raw_data and isinstance(raw_data["actions"], list):
+            items_to_process = raw_data["actions"]
+        elif "items" in raw_data and isinstance(raw_data["items"], list):
+            items_to_process = raw_data["items"]
+        else:
+            items_to_process = [raw_data]
+    elif isinstance(raw_data, list):
+        items_to_process = raw_data
+    else:
+        return []
+
+    sanitized: List[Dict[str, Any]] = []
+    for idx, item in enumerate(items_to_process, start=1):
+        if not isinstance(item, dict):
+            if isinstance(item, str) and item.strip():
+                item = {"action": item.strip()}
+            else:
+                continue
+
+        # Extract and sanitize action
+        raw_act = item.get("action")
+        if raw_act is None:
+            raw_act = item.get("task") or item.get("title") or item.get("description")
+        
+        if raw_act is None or not str(raw_act).strip():
+            continue
+        action_str = str(raw_act).strip()
+
+        # Extract and sanitize assignee
+        raw_asn = item.get("assignee")
+        if raw_asn is None:
+            raw_asn = item.get("role") or item.get("assigned_to") or item.get("responsible")
+        assignee_str = str(raw_asn).strip() if (raw_asn is not None and str(raw_asn).strip()) else "NOT STATED"
+
+        # Extract and sanitize deadline
+        raw_dl = item.get("deadline")
+        if raw_dl is None:
+            raw_dl = item.get("due_date") or item.get("date")
+        deadline_str = str(raw_dl).strip() if (raw_dl is not None and str(raw_dl).strip()) else "NOT STATED"
+
+        # Extract and sanitize fee_or_docs
+        raw_fd = item.get("fee_or_docs")
+        if raw_fd is None:
+            raw_fd = item.get("fee") or item.get("documents") or item.get("docs")
+        fee_str = str(raw_fd).strip() if (raw_fd is not None and str(raw_fd).strip()) else "NOT STATED"
+
+        # Extract and sanitize source_quote
+        raw_sq = item.get("source_quote")
+        if raw_sq is None:
+            raw_sq = item.get("quote") or item.get("evidence")
+        quote_str = str(raw_sq).strip() if (raw_sq is not None) else ""
+
+        # Extract id
+        raw_id = item.get("id")
+        item_id = str(raw_id).strip() if (raw_id is not None and str(raw_id).strip()) else f"act_{idx}"
+
+        sanitized.append({
+            "id": item_id,
+            "action": action_str,
+            "assignee": assignee_str,
+            "deadline": deadline_str,
+            "fee_or_docs": fee_str,
+            "source_quote": quote_str
+        })
+
+    return sanitized
+
+
 def query_backboard_native(prompt: str, timeout_sec: float = 14.0) -> Optional[str]:
     """
     Direct client for Backboard AI (app.backboard.io) with unified routing.
@@ -111,10 +192,9 @@ def extract_with_gemma_api(notice_text: str, timeout_sec: float = 12.0) -> Optio
                 content = re.sub(r"\s*```$", "", content, flags=re.MULTILINE).strip()
             try:
                 parsed = json.loads(content)
-                if isinstance(parsed, dict) and "actions" in parsed:
-                    return parsed["actions"]
-                elif isinstance(parsed, list):
-                    return parsed
+                sanitized = sanitize_raw_action_items(parsed)
+                if sanitized:
+                    return sanitized
             except Exception as pe:
                 logger.warning(f"Backboard native response parse error: {pe}")
 
@@ -147,10 +227,9 @@ def extract_with_gemma_api(notice_text: str, timeout_sec: float = 12.0) -> Optio
                 content = re.sub(r"\s*```$", "", content, flags=re.MULTILINE).strip()
 
             parsed = json.loads(content)
-            if isinstance(parsed, dict) and "actions" in parsed:
-                return parsed["actions"]
-            elif isinstance(parsed, list):
-                return parsed
+            sanitized = sanitize_raw_action_items(parsed)
+            if sanitized:
+                return sanitized
         else:
             logger.warning(f"Gemma API returned status {resp.status_code}: {resp.text[:200]}")
     except Exception as e:
@@ -321,6 +400,8 @@ def extract_action_items(notice_text: str) -> Dict[str, Any]:
 
     if raw_items is None:
         raw_items = extract_with_deterministic_heuristic(notice_text)
+    else:
+        raw_items = sanitize_raw_action_items(raw_items)
 
     latency_ms = round((time.time() - start_time) * 1000, 1)
 
