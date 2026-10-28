@@ -102,7 +102,7 @@ def extract_notice_actions(req: ExtractRequest):
     raw_items = extraction_result["raw_items"]
 
     # 2. Evidence Grounding & Anti-Hallucination Validation Layer
-    validation_report = validate_extracted_checklist(req.text, raw_items)
+    validation_report = validate_extracted_checklist(req.text, raw_items, verify_quotes=req.verify_quotes)
 
     return {
         "engine": extraction_result["engine"],

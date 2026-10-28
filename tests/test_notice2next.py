@@ -793,3 +793,111 @@ def test_api_sample_public_notice_endpoint():
 
 
 
+
+
+# ==============================================================================
+# 8. PR 3 REGRESSION TESTS: AI SCHEMA VALIDATION & EVIDENCE CORRECTNESS
+# ==============================================================================
+
+def test_sanitize_raw_action_items_handles_malformed_and_loose_json():
+    """Verify that sanitize_raw_action_items handles nulls, alternative keys, and loose strings safely."""
+    from app.extractor import sanitize_raw_action_items
+
+    # 1. Null / empty input
+    assert sanitize_raw_action_items(None) == []
+    assert sanitize_raw_action_items([]) == []
+    assert sanitize_raw_action_items("not a list or dict") == []
+
+    # 2. Loose strings in action list
+    raw_mixed = [
+        "Plain text instruction to submit grades by Friday",
+        {"action": "Collect permission slips", "assignee": None, "deadline": 2026},
+        {"task": "Alternative key task", "role": "Grade 5 Staff", "due_date": "Nov 1"},
+        {"fee_or_docs": "only fee without action"}, # Should be skipped because action is missing
+        None,
+        12345
+    ]
+    sanitized = sanitize_raw_action_items(raw_mixed)
+    assert len(sanitized) == 3
+
+    # First item from string
+    assert sanitized[0]["action"] == "Plain text instruction to submit grades by Friday"
+    assert sanitized[0]["assignee"] == "NOT STATED"
+    assert sanitized[0]["deadline"] == "NOT STATED"
+
+    # Second item with null assignee and integer deadline
+    assert sanitized[1]["action"] == "Collect permission slips"
+    assert sanitized[1]["assignee"] == "NOT STATED"
+    assert sanitized[1]["deadline"] == "2026"
+
+    # Third item using alternative keys (task, role, due_date)
+    assert sanitized[2]["action"] == "Alternative key task"
+    assert sanitized[2]["assignee"] == "Grade 5 Staff"
+    assert sanitized[2]["deadline"] == "Nov 1"
+
+
+def test_validate_action_item_resilient_to_corrupted_dict():
+    """Verify that validate_action_item does not throw AttributeError when given unexpected types."""
+    from app.validator import validate_action_item
+
+    corrupted_item = {
+        "action": None,
+        "assignee": 999,
+        "deadline": None,
+        "fee_or_docs": False,
+        "source_quote": None
+    }
+    result = validate_action_item("Sample notice text", corrupted_item)
+    assert isinstance(result, dict)
+    assert result["action"] == "Unspecified Action"
+    assert result["assignee"] == "999"
+    assert result["deadline"] == "NOT STATED"
+    assert result["fee_or_docs"] == "NOT STATED"
+    assert result["source_quote"] == "(No quote provided)"
+
+
+def test_validate_extracted_checklist_verify_quotes_false():
+    """Verify that passing verify_quotes=False skips verbatim quote verification."""
+    from app.validator import validate_extracted_checklist
+
+    notice = "Grade 9 teachers must turn in science projects by Monday at 3:00 PM."
+    raw_items = [
+        {
+            "id": "act_1",
+            "action": "Turn in science projects",
+            "assignee": "Grade 9 teachers",
+            "deadline": "Monday at 3:00 PM",
+            "fee_or_docs": "NOT STATED",
+            "source_quote": "This quote is completely hallucinated and not in the circular at all!"
+        }
+    ]
+
+    # When verify_quotes=True, the item is FLAGGED because the quote is hallucinated
+    rep_true = validate_extracted_checklist(notice, raw_items, verify_quotes=True)
+    assert rep_true["items"][0]["validation_status"] == "FLAGGED_FOR_HUMAN_REVIEW"
+    assert rep_true["items"][0]["quote_verified"] is False
+    assert "Verbatim quote matching confirms" in rep_true["disclaimer"]
+
+    # When verify_quotes=False, quote verification is skipped and the item is marked UNVERIFIED_BY_REQUEST
+    rep_false = validate_extracted_checklist(notice, raw_items, verify_quotes=False)
+    assert rep_false["items"][0]["validation_status"] == "UNVERIFIED_BY_REQUEST"
+    assert rep_false["items"][0]["quote_verified"] is False
+    assert rep_false["items"][0]["field_evidence"]["quote"]["category"] == "UNVERIFIED_BY_REQUEST"
+    assert rep_false["items"][0]["validation_badge"] == "quote-skipped"
+    assert "Quote verification was disabled for this extraction" in rep_false["disclaimer"]
+
+
+def test_api_extract_endpoint_honors_verify_quotes_param():
+    """Verify that POST /api/extract with verify_quotes=False respects the parameter."""
+    payload = {
+        "text": "All science department teachers must submit lab inventories by October 30, 2026.",
+        "verify_quotes": False
+    }
+    res = client.post("/api/extract", json=payload)
+    assert res.status_code == 200
+    data = res.json()
+    assert "summary" in data
+    assert "Quote verification was disabled" in data["summary"]["disclaimer"]
+    for item in data["items"]:
+        assert item["quote_verified"] is False
+        assert item["field_evidence"]["quote"]["category"] == "UNVERIFIED_BY_REQUEST"
