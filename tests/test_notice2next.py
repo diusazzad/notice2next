@@ -793,3 +793,263 @@ def test_api_sample_public_notice_endpoint():
 
 
 
+
+
+# ==============================================================================
+# 8. PR 1 REGRESSION TESTS: REQUEST SAFETY & PROVIDER COST PROTECTION
+# ==============================================================================
+
+def test_extract_request_exceeds_max_length_rejected():
+    """Verify that oversized notice text (>50,000 chars) is rejected with 422."""
+    oversized = "A" * 50001
+    res = client.post("/api/extract", json={"text": oversized})
+    assert res.status_code == 422
+
+
+def test_clean_ocr_request_exceeds_max_length_rejected():
+    """Verify that oversized OCR text (>50,000 chars) is rejected with 422."""
+    oversized = "A" * 50001
+    res = client.post("/api/clean-ocr-text", json={"raw_text": oversized})
+    assert res.status_code == 422
+
+
+def test_export_csv_items_count_bounded():
+    """Verify that exceeding 100 items in export request is rejected with 422."""
+    excess_items = [{"action": f"Task {i}", "assignee": "Teacher", "deadline": "NOT STATED"} for i in range(101)]
+    res = client.post("/api/export/csv", json={"items": excess_items})
+    assert res.status_code == 422
+
+
+def test_request_body_oversized_with_content_length():
+    """Verify that an oversized body with a valid, oversized Content-Length is rejected with 413 before extraction."""
+    from unittest.mock import patch
+    with patch("main.extract_action_items") as mock_extract:
+        oversized = b'{"text": "' + b"X" * (2 * 1024 * 1024 + 100) + b'"}'
+        res = client.post(
+            "/api/extract",
+            content=oversized,
+            headers={"Content-Length": str(len(oversized)), "Content-Type": "application/json"}
+        )
+        assert res.status_code == 413
+        assert "exceeds maximum allowed size" in res.json()["detail"]
+        mock_extract.assert_not_called()
+
+
+def test_request_body_oversized_chunked_without_content_length():
+    """Verify that an oversized chunked body without Content-Length is rejected with 413 before extraction."""
+    from unittest.mock import patch
+    with patch("main.extract_action_items") as mock_extract:
+        def chunk_gen():
+            total = 2097315  # 2,097,315 bytes (> 2MB)
+            chunk_size = 65536
+            sent = 0
+            yield b'{"text": "Valid notice text", "ignored": "'
+            sent += len(b'{"text": "Valid notice text", "ignored": "')
+            while sent < total - 2:
+                to_send = min(chunk_size, total - 2 - sent)
+                yield b"C" * to_send
+                sent += to_send
+            yield b'"}'
+
+        res = client.post(
+            "/api/extract",
+            content=chunk_gen(),
+            headers={"Transfer-Encoding": "chunked", "Content-Type": "application/json"}
+        )
+        assert res.status_code == 413
+        assert "exceeds maximum allowed size" in res.json()["detail"]
+        mock_extract.assert_not_called()
+
+
+def test_request_body_exact_limit_allowed():
+    """Verify that a body exactly at the configured 2MB limit (2,097,152 bytes) is accepted."""
+    limit = 2 * 1024 * 1024
+    prefix = b'{"text": "Grade 9 teachers must submit lab reports by Friday.", "padding": "'
+    suffix = b'"}'
+    padding_len = limit - len(prefix) - len(suffix)
+    exact_body = prefix + (b"Z" * padding_len) + suffix
+    assert len(exact_body) == limit
+
+    res = client.post(
+        "/api/extract",
+        content=exact_body,
+        headers={"Content-Length": str(limit), "Content-Type": "application/json"}
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert "items" in data
+
+
+def test_request_body_oversized_ignored_json_field():
+    """Verify that a body exceeding 2MB with an ignored extra JSON field is rejected with 413 before extraction."""
+    from unittest.mock import patch
+    with patch("main.extract_action_items") as mock_extract:
+        # text field itself is small (40 chars), but extra padding pushes total body over 2MB
+        oversized_json = b'{"text": "Small notice text", "unrelated_payload": "' + b"P" * (2 * 1024 * 1024 + 500) + b'"}'
+        res = client.post(
+            "/api/extract",
+            content=oversized_json,
+            headers={"Content-Length": str(len(oversized_json)), "Content-Type": "application/json"}
+        )
+        assert res.status_code == 413
+        assert "exceeds maximum allowed size" in res.json()["detail"]
+        mock_extract.assert_not_called()
+
+
+def test_api_benchmark_defaults_to_deterministic_offline_fixture():
+    """Verify that GET /api/benchmark runs deterministically without live model invocation."""
+    res = client.get("/api/benchmark")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["total_test_cases"] == 6
+    assert data["passed_cases"] == 6
+    assert data["pass_rate_percentage"] == 100.0
+    assert data["live_model_called"] is False
+    assert data["remote_calls_attempted"] == 0
+    assert data["remote_calls_succeeded"] == 0
+    assert "Deterministic Heuristic Engine" in data["engine_evaluated"]
+
+
+def test_api_benchmark_offline_never_invokes_remote_provider():
+    """Prove that offline benchmark requests never invoke the live provider even if credentials exist."""
+    from unittest.mock import patch
+    with patch("app.extractor.BACKBOARD_API_KEY", "espr_mock_live_token"):
+        with patch("app.extractor.extract_with_gemma_api") as mock_gemma:
+            res = client.get("/api/benchmark")
+            assert res.status_code == 200
+            data = res.json()
+            assert data["live_model_called"] is False
+            assert data["remote_calls_attempted"] == 0
+            assert data["remote_calls_succeeded"] == 0
+            mock_gemma.assert_not_called()
+
+
+def test_api_benchmark_allow_live_unauthorized_rejected():
+    """Verify that requesting allow_live=true without or with invalid X-Benchmark-Key returns 401."""
+    import os
+    from unittest.mock import patch
+
+    # 1. No header provided -> 401
+    res1 = client.get("/api/benchmark?allow_live=true")
+    assert res1.status_code == 401
+    assert "Unauthorized" in res1.json()["detail"]
+
+    # 2. Invalid header provided -> 401
+    with patch.dict(os.environ, {"BENCHMARK_ADMIN_KEY": "correct_secret_token"}):
+        res2 = client.get("/api/benchmark?allow_live=true", headers={"X-Benchmark-Key": "wrong_key"})
+        assert res2.status_code == 401
+        assert "Unauthorized" in res2.json()["detail"]
+
+    # 3. Query string benchmark_key is NOT accepted -> 401
+    with patch.dict(os.environ, {"BENCHMARK_ADMIN_KEY": "correct_secret_token"}):
+        res3 = client.get("/api/benchmark?allow_live=true&benchmark_key=correct_secret_token")
+        assert res3.status_code == 401
+
+
+def test_api_benchmark_allow_live_authorized_accounting():
+    """Verify that authorized live benchmark accurately accounts for remote calls."""
+    import os
+    from unittest.mock import patch
+
+    with patch.dict(os.environ, {"BENCHMARK_ADMIN_KEY": "valid_admin_secret", "BACKBOARD_API_KEY": "espr_mock_api_key"}):
+        with patch("app.extractor.BACKBOARD_API_KEY", "espr_mock_api_key"):
+            with patch("app.extractor.extract_with_gemma_api", return_value=[{"action": "Duty", "assignee": "Science Teachers", "deadline": "October 29", "fee_or_docs": "$15", "source_quote": "Science Teachers"}]):
+                res = client.get("/api/benchmark?allow_live=true", headers={"X-Benchmark-Key": "valid_admin_secret"})
+                assert res.status_code == 200
+                data = res.json()
+                assert data["model_extractions_attempted"] == 6
+                assert data["model_extractions_succeeded"] == 6
+                assert data["remote_calls_attempted"] == 6
+                assert data["remote_calls_succeeded"] == 6
+                assert data["live_model_called"] is True
+
+
+def test_api_benchmark_live_missing_provider_config_returns_503():
+    """Verify that authorized live benchmark returns 503 if provider credentials are absent."""
+    import os
+    from unittest.mock import patch
+
+    # 1. When allow_live=True with valid admin key, but BACKBOARD_API_KEY is unset -> 503
+    env_vars = {"BENCHMARK_ADMIN_KEY": "valid_admin_secret", "BACKBOARD_API_KEY": ""}
+    with patch.dict(os.environ, env_vars):
+        res = client.get("/api/benchmark?allow_live=true", headers={"X-Benchmark-Key": "valid_admin_secret"})
+        assert res.status_code == 503
+        data = res.json()
+        assert "Service Unavailable" in data["detail"]
+        assert "BACKBOARD_API_KEY missing" in data["detail"]
+
+    # 2. When allow_live=True with placeholder key 'your_...' -> 503
+    env_vars_placeholder = {"BENCHMARK_ADMIN_KEY": "valid_admin_secret", "BACKBOARD_API_KEY": "your_backboard_api_key"}
+    with patch.dict(os.environ, env_vars_placeholder):
+        res = client.get("/api/benchmark?allow_live=true", headers={"X-Benchmark-Key": "valid_admin_secret"})
+        assert res.status_code == 503
+
+    # 3. Default offline benchmark still returns 200 OK
+    res_offline = client.get("/api/benchmark")
+    assert res_offline.status_code == 200
+    assert res_offline.json()["live_model_called"] is False
+
+
+def test_api_benchmark_mixed_engine_reporting():
+    """Verify that benchmark accurately reports mixed engine usage when some calls fall back."""
+    from unittest.mock import patch
+    from main import run_live_benchmark
+
+    sample_results = [
+        # First 4 samples succeed with Gemma 2
+        {"engine": "Google Gemma 2 (google/gemma-2-9b-it) via Backboard", "live_model_called": True, "remote_call_attempted": True, "raw_items": [{"action": "Task", "assignee": "Science Teachers", "deadline": "October 29", "fee_or_docs": "$15", "source_quote": "Science Teachers"}]},
+        {"engine": "Google Gemma 2 (google/gemma-2-9b-it) via Backboard", "live_model_called": True, "remote_call_attempted": True, "raw_items": [{"action": "Task", "assignee": "Homeroom Teachers", "deadline": "NOT STATED", "fee_or_docs": "NOT STATED", "source_quote": "Homeroom Teachers"}]},
+        {"engine": "Google Gemma 2 (google/gemma-2-9b-it) via Backboard", "live_model_called": True, "remote_call_attempted": True, "raw_items": []},
+        {"engine": "Google Gemma 2 (google/gemma-2-9b-it) via Backboard", "live_model_called": True, "remote_call_attempted": True, "raw_items": [{"action": "Task", "assignee": "Senior Department Heads", "deadline": "November 10, 2026", "fee_or_docs": "NOT STATED", "source_quote": "Senior Department Heads"}]},
+        # Last 2 samples encounter failure and fall back to deterministic heuristic
+        {"engine": "Deterministic Heuristic Engine (Offline / Local Mode)", "live_model_called": False, "remote_call_attempted": True, "raw_items": []},
+        {"engine": "Deterministic Heuristic Engine (Offline / Local Mode)", "live_model_called": False, "remote_call_attempted": True, "raw_items": []},
+    ]
+
+    with patch("main.extract_action_items", side_effect=sample_results):
+        data = run_live_benchmark(force_offline=False)
+        assert data["engine_evaluated"].startswith("Mixed Engines:")
+        assert "Google Gemma 2" in data["engine_evaluated"]
+        assert "Deterministic Heuristic Engine" in data["engine_evaluated"]
+        assert len(data["engines_used"]) == 2
+        assert data["model_extractions_attempted"] == 6
+        assert data["model_extractions_succeeded"] == 4
+        assert data["live_model_called"] is True
+        # Check per-sample recorded engine
+        assert data["test_results"][0]["engine"] == "Google Gemma 2 (google/gemma-2-9b-it) via Backboard"
+        assert data["test_results"][4]["engine"] == "Deterministic Heuristic Engine (Offline / Local Mode)"
+
+
+def test_extractor_provider_network_failure_fallback():
+    """Verify that network exceptions trigger graceful fallback and accurate metric reporting."""
+    import requests
+    from unittest.mock import patch
+    from app.extractor import extract_action_items
+
+    with patch("app.extractor.BACKBOARD_API_KEY", "espr_test_api_key"):
+        with patch("requests.post", side_effect=requests.Timeout("Connection timed out")):
+            result = extract_action_items("All teachers must submit final exam papers by Monday.", force_offline=False)
+            assert result["remote_call_attempted"] is True
+            assert result["live_model_called"] is False
+            assert "Deterministic Heuristic" in result["engine"]
+            assert len(result["raw_items"]) >= 1
+
+
+def test_extractor_malformed_json_fallback():
+    """Verify that malformed non-JSON provider responses fall back safely to deterministic heuristics."""
+    from unittest.mock import patch, MagicMock
+    from app.extractor import extract_action_items
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {
+        "choices": [{"message": {"content": "INVALID_NON_JSON_OUTPUT_WITH_UNBALANCED_BRACKETS {["}}]
+    }
+
+    with patch("app.extractor.BACKBOARD_API_KEY", "bk_test_api_key"):
+        with patch("requests.post", return_value=mock_resp):
+            result = extract_action_items("Homeroom teachers must submit permission slips by Friday.", force_offline=False)
+            assert result["remote_call_attempted"] is True
+            assert result["live_model_called"] is False
+            assert "Deterministic Heuristic" in result["engine"]
+            assert len(result["raw_items"]) >= 1

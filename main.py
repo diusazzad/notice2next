@@ -5,10 +5,12 @@ Hacktoberfest 2026 Week 3 Official Entry.
 """
 
 import os
+import hmac
 from typing import List, Dict, Any, Optional
-from fastapi import FastAPI, HTTPException, Response
+from fastapi import FastAPI, HTTPException, Response, Request, Header
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, PlainTextResponse
+from fastapi.responses import FileResponse, PlainTextResponse, JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from pydantic import BaseModel, Field
 
 from app.extractor import extract_action_items, clean_ocr_text, BACKBOARD_API_KEY, GEMMA_MODEL
@@ -24,33 +26,111 @@ app = FastAPI(
     version="1.0.0"
 )
 
+MAX_REQUEST_BODY_BYTES = 2 * 1024 * 1024  # 2MB maximum payload guard (2,097,152 bytes)
+
+class RequestSizeLimitExceeded(StarletteHTTPException):
+    def __init__(self):
+        super().__init__(
+            status_code=413,
+            detail="Request payload exceeds maximum allowed size (2MB)."
+        )
+
+class RequestSizeLimitMiddleware:
+    """
+    ASGI middleware enforcing strict request body size limits on both:
+    1. Early Content-Length header checks (optimization).
+    2. Real-time received bytes counter across streaming / chunked Transfer-Encoding bodies.
+    """
+    def __init__(self, app, max_bytes: int = MAX_REQUEST_BODY_BYTES):
+        self.app = app
+        self.max_bytes = max_bytes
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        # 1. Early Content-Length optimization
+        headers = dict(scope.get("headers", []))
+        content_length = headers.get(b"content-length")
+        if content_length:
+            try:
+                if int(content_length.decode("latin-1")) > self.max_bytes:
+                    resp = JSONResponse(
+                        status_code=413,
+                        content={"detail": "Request payload exceeds maximum allowed size (2MB)."}
+                    )
+                    await resp(scope, receive, send)
+                    return
+            except ValueError:
+                pass
+
+        # 2. Actual received bytes counter across streaming / chunked bodies
+        total_bytes = 0
+        response_started = False
+
+        async def limited_receive():
+            nonlocal total_bytes
+            message = await receive()
+            if message["type"] == "http.request":
+                body = message.get("body", b"")
+                total_bytes += len(body)
+                if total_bytes > self.max_bytes:
+                    raise RequestSizeLimitExceeded()
+            return message
+
+        async def tracking_send(message):
+            nonlocal response_started
+            if message["type"] == "http.response.start":
+                response_started = True
+            await send(message)
+
+        try:
+            await self.app(scope, limited_receive, tracking_send)
+        except RequestSizeLimitExceeded:
+            if not response_started:
+                resp = JSONResponse(
+                    status_code=413,
+                    content={"detail": "Request payload exceeds maximum allowed size (2MB)."}
+                )
+                await resp(scope, receive, send)
+
+app.add_middleware(RequestSizeLimitMiddleware, max_bytes=MAX_REQUEST_BODY_BYTES)
+
+@app.exception_handler(RequestSizeLimitExceeded)
+async def handle_size_limit_exceeded(request: Request, exc: RequestSizeLimitExceeded):
+    return JSONResponse(
+        status_code=413,
+        content={"detail": "Request payload exceeds maximum allowed size (2MB)."}
+    )
+
 # Mount static assets
 static_dir = os.path.join(os.path.dirname(__file__), "static")
 if os.path.exists(static_dir):
     app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
 
-# Pydantic Request Models
+# Pydantic Request Models (Bounded for DoS and Resource Protection)
 class ExtractRequest(BaseModel):
-    text: str = Field(..., min_length=10, description="Raw school circular or memo text")
+    text: str = Field(..., min_length=10, max_length=50000, description="Raw school circular or memo text (max 50,000 characters)")
     verify_quotes: bool = Field(True, description="Enforce deterministic substring quote verification")
 
 
 class ExportCSVRequest(BaseModel):
-    items: List[Dict[str, Any]] = Field(..., description="List of action items to export")
+    items: List[Dict[str, Any]] = Field(..., max_length=100, description="List of action items to export (max 100 items)")
 
 
 class FetchURLRequest(BaseModel):
-    url: str = Field(..., min_length=8, description="Public notice webpage or direct PDF URL")
+    url: str = Field(..., min_length=8, max_length=2048, description="Public notice webpage or direct PDF URL (max 2,048 characters)")
 
 
 class SpeakBriefingRequest(BaseModel):
-    items: List[Dict[str, Any]] = Field(..., description="List of validated action items")
-    summary: Optional[str] = Field("", description="Optional notice overview summary")
+    items: List[Dict[str, Any]] = Field(..., max_length=50, description="List of validated action items (max 50 items)")
+    summary: Optional[str] = Field("", max_length=2000, description="Optional notice overview summary (max 2,000 characters)")
 
 
 class CleanOCRRequest(BaseModel):
-    raw_text: str = Field(..., min_length=3, description="Raw OCR scanned text from photo")
+    raw_text: str = Field(..., min_length=3, max_length=50000, description="Raw OCR scanned text from photo (max 50,000 characters)")
 
 
 @app.get("/")
@@ -266,27 +346,33 @@ def get_sample_stem_directive():
     return Response(content=html, media_type="text/html")
 
 
-@app.get("/api/benchmark")
-def run_live_benchmark():
+def run_live_benchmark(force_offline: bool = True):
     """
     Runs automated evaluation across all 6 synthetic test circulars.
     Strictly verifies expected item counts, field presence, date grounding, and human-review flags.
-    Fails if any expected trait does not match.
+    Defaults to deterministic offline evaluation fixtures to prevent uncontrolled provider cost.
     """
     results = []
     total_samples = len(SAMPLE_NOTICES)
     passed_cases = 0
-    engine_name = "Unknown"
-    live_called = False
+    engines_used = []
+
+    model_extractions_attempted = 0
+    model_extractions_succeeded = 0
 
     for sample in SAMPLE_NOTICES:
         text = sample["text"]
         expected_count = sample["expected_items_count"]
         sample_id = sample["id"]
-        
-        ext = extract_action_items(text)
-        engine_name = ext["engine"]
-        live_called = ext["live_model_called"]
+
+        ext = extract_action_items(text, force_offline=force_offline)
+        sample_engine = ext.get("engine", "Deterministic Heuristic Engine (Offline / Local Mode)")
+        engines_used.append(sample_engine)
+
+        if ext.get("remote_call_attempted"):
+            model_extractions_attempted += 1
+        if ext.get("live_model_called"):
+            model_extractions_succeeded += 1
         
         val = validate_extracted_checklist(text, ext["raw_items"])
         items = val["items"]
@@ -384,6 +470,7 @@ def run_live_benchmark():
             "case_id": sample_id,
             "title": sample["title"],
             "language": sample["language"],
+            "engine": sample_engine,
             "passed": case_passed,
             "items_extracted": item_count,
             "expected_count": expected_count,
@@ -393,9 +480,24 @@ def run_live_benchmark():
 
     pass_rate = round((passed_cases / total_samples) * 100.0, 1)
 
+    unique_engines = list(dict.fromkeys(engines_used))
+    if len(unique_engines) == 1:
+        engine_evaluated = unique_engines[0]
+    elif len(unique_engines) > 1:
+        counts = {eng: engines_used.count(eng) for eng in unique_engines}
+        summary_parts = [f"{eng} ({count}/{total_samples})" for eng, count in counts.items()]
+        engine_evaluated = f"Mixed Engines: {', '.join(summary_parts)}"
+    else:
+        engine_evaluated = "Unknown"
+
     return {
-        "engine_evaluated": engine_name,
-        "live_model_called": live_called,
+        "engine_evaluated": engine_evaluated,
+        "engines_used": unique_engines,
+        "live_model_called": model_extractions_succeeded > 0,
+        "model_extractions_attempted": model_extractions_attempted,
+        "model_extractions_succeeded": model_extractions_succeeded,
+        "remote_calls_attempted": model_extractions_attempted,
+        "remote_calls_succeeded": model_extractions_succeeded,
         "total_test_cases": total_samples,
         "passed_cases": passed_cases,
         "pass_rate_percentage": pass_rate,
@@ -406,6 +508,36 @@ def run_live_benchmark():
             "but does not claim universal real-world accuracy across arbitrary school circulars."
         )
     }
+
+
+@app.get("/api/benchmark")
+def get_benchmark(
+    allow_live: bool = False,
+    x_benchmark_key: Optional[str] = Header(None, alias="X-Benchmark-Key")
+):
+    """
+    Public benchmark endpoint. Defaults to deterministic offline evaluation fixtures (zero provider cost).
+    Live cloud inference requires explicit authorization via the X-Benchmark-Key header.
+    Returns 503 if live execution is authorized but provider credentials are absent.
+    """
+    if allow_live:
+        admin_key = os.environ.get("BENCHMARK_ADMIN_KEY", "").strip()
+        if not admin_key or not x_benchmark_key or not hmac.compare_digest(x_benchmark_key, admin_key):
+            raise HTTPException(
+                status_code=401,
+                detail="Unauthorized: Invalid or missing X-Benchmark-Key header for live benchmark execution."
+            )
+
+        provider_key = os.environ.get("BACKBOARD_API_KEY", "").strip()
+        if not provider_key or provider_key.startswith("your_"):
+            raise HTTPException(
+                status_code=503,
+                detail="Service Unavailable: Live model inference provider is not configured (BACKBOARD_API_KEY missing or invalid)."
+            )
+
+        return run_live_benchmark(force_offline=False)
+
+    return run_live_benchmark(force_offline=True)
 
 
 if __name__ == "__main__":
