@@ -951,12 +951,105 @@ def test_api_benchmark_allow_live_authorized_accounting():
     import os
     from unittest.mock import patch
 
-    with patch.dict(os.environ, {"BENCHMARK_ADMIN_KEY": "valid_admin_secret"}):
+    with patch.dict(os.environ, {"BENCHMARK_ADMIN_KEY": "valid_admin_secret", "BACKBOARD_API_KEY": "espr_mock_api_key"}):
         with patch("app.extractor.BACKBOARD_API_KEY", "espr_mock_api_key"):
             with patch("app.extractor.extract_with_gemma_api", return_value=[{"action": "Duty", "assignee": "Science Teachers", "deadline": "October 29", "fee_or_docs": "$15", "source_quote": "Science Teachers"}]):
                 res = client.get("/api/benchmark?allow_live=true", headers={"X-Benchmark-Key": "valid_admin_secret"})
                 assert res.status_code == 200
                 data = res.json()
+                assert data["model_extractions_attempted"] == 6
+                assert data["model_extractions_succeeded"] == 6
                 assert data["remote_calls_attempted"] == 6
                 assert data["remote_calls_succeeded"] == 6
                 assert data["live_model_called"] is True
+
+
+def test_api_benchmark_live_missing_provider_config_returns_503():
+    """Verify that authorized live benchmark returns 503 if provider credentials are absent."""
+    import os
+    from unittest.mock import patch
+
+    # 1. When allow_live=True with valid admin key, but BACKBOARD_API_KEY is unset -> 503
+    env_vars = {"BENCHMARK_ADMIN_KEY": "valid_admin_secret", "BACKBOARD_API_KEY": ""}
+    with patch.dict(os.environ, env_vars):
+        res = client.get("/api/benchmark?allow_live=true", headers={"X-Benchmark-Key": "valid_admin_secret"})
+        assert res.status_code == 503
+        data = res.json()
+        assert "Service Unavailable" in data["detail"]
+        assert "BACKBOARD_API_KEY missing" in data["detail"]
+
+    # 2. When allow_live=True with placeholder key 'your_...' -> 503
+    env_vars_placeholder = {"BENCHMARK_ADMIN_KEY": "valid_admin_secret", "BACKBOARD_API_KEY": "your_backboard_api_key"}
+    with patch.dict(os.environ, env_vars_placeholder):
+        res = client.get("/api/benchmark?allow_live=true", headers={"X-Benchmark-Key": "valid_admin_secret"})
+        assert res.status_code == 503
+
+    # 3. Default offline benchmark still returns 200 OK
+    res_offline = client.get("/api/benchmark")
+    assert res_offline.status_code == 200
+    assert res_offline.json()["live_model_called"] is False
+
+
+def test_api_benchmark_mixed_engine_reporting():
+    """Verify that benchmark accurately reports mixed engine usage when some calls fall back."""
+    from unittest.mock import patch
+    from main import run_live_benchmark
+
+    sample_results = [
+        # First 4 samples succeed with Gemma 2
+        {"engine": "Google Gemma 2 (google/gemma-2-9b-it) via Backboard", "live_model_called": True, "remote_call_attempted": True, "raw_items": [{"action": "Task", "assignee": "Science Teachers", "deadline": "October 29", "fee_or_docs": "$15", "source_quote": "Science Teachers"}]},
+        {"engine": "Google Gemma 2 (google/gemma-2-9b-it) via Backboard", "live_model_called": True, "remote_call_attempted": True, "raw_items": [{"action": "Task", "assignee": "Homeroom Teachers", "deadline": "NOT STATED", "fee_or_docs": "NOT STATED", "source_quote": "Homeroom Teachers"}]},
+        {"engine": "Google Gemma 2 (google/gemma-2-9b-it) via Backboard", "live_model_called": True, "remote_call_attempted": True, "raw_items": []},
+        {"engine": "Google Gemma 2 (google/gemma-2-9b-it) via Backboard", "live_model_called": True, "remote_call_attempted": True, "raw_items": [{"action": "Task", "assignee": "Senior Department Heads", "deadline": "November 10, 2026", "fee_or_docs": "NOT STATED", "source_quote": "Senior Department Heads"}]},
+        # Last 2 samples encounter failure and fall back to deterministic heuristic
+        {"engine": "Deterministic Heuristic Engine (Offline / Local Mode)", "live_model_called": False, "remote_call_attempted": True, "raw_items": []},
+        {"engine": "Deterministic Heuristic Engine (Offline / Local Mode)", "live_model_called": False, "remote_call_attempted": True, "raw_items": []},
+    ]
+
+    with patch("main.extract_action_items", side_effect=sample_results):
+        data = run_live_benchmark(force_offline=False)
+        assert data["engine_evaluated"].startswith("Mixed Engines:")
+        assert "Google Gemma 2" in data["engine_evaluated"]
+        assert "Deterministic Heuristic Engine" in data["engine_evaluated"]
+        assert len(data["engines_used"]) == 2
+        assert data["model_extractions_attempted"] == 6
+        assert data["model_extractions_succeeded"] == 4
+        assert data["live_model_called"] is True
+        # Check per-sample recorded engine
+        assert data["test_results"][0]["engine"] == "Google Gemma 2 (google/gemma-2-9b-it) via Backboard"
+        assert data["test_results"][4]["engine"] == "Deterministic Heuristic Engine (Offline / Local Mode)"
+
+
+def test_extractor_provider_network_failure_fallback():
+    """Verify that network exceptions trigger graceful fallback and accurate metric reporting."""
+    import requests
+    from unittest.mock import patch
+    from app.extractor import extract_action_items
+
+    with patch("app.extractor.BACKBOARD_API_KEY", "espr_test_api_key"):
+        with patch("requests.post", side_effect=requests.Timeout("Connection timed out")):
+            result = extract_action_items("All teachers must submit final exam papers by Monday.", force_offline=False)
+            assert result["remote_call_attempted"] is True
+            assert result["live_model_called"] is False
+            assert "Deterministic Heuristic" in result["engine"]
+            assert len(result["raw_items"]) >= 1
+
+
+def test_extractor_malformed_json_fallback():
+    """Verify that malformed non-JSON provider responses fall back safely to deterministic heuristics."""
+    from unittest.mock import patch, MagicMock
+    from app.extractor import extract_action_items
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {
+        "choices": [{"message": {"content": "INVALID_NON_JSON_OUTPUT_WITH_UNBALANCED_BRACKETS {["}}]
+    }
+
+    with patch("app.extractor.BACKBOARD_API_KEY", "bk_test_api_key"):
+        with patch("requests.post", return_value=mock_resp):
+            result = extract_action_items("Homeroom teachers must submit permission slips by Friday.", force_offline=False)
+            assert result["remote_call_attempted"] is True
+            assert result["live_model_called"] is False
+            assert "Deterministic Heuristic" in result["engine"]
+            assert len(result["raw_items"]) >= 1

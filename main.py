@@ -355,10 +355,10 @@ def run_live_benchmark(force_offline: bool = True):
     results = []
     total_samples = len(SAMPLE_NOTICES)
     passed_cases = 0
-    engine_name = "Deterministic Heuristic Engine (Offline / Local Mode)"
+    engines_used = []
 
-    remote_calls_attempted = 0
-    remote_calls_succeeded = 0
+    model_extractions_attempted = 0
+    model_extractions_succeeded = 0
 
     for sample in SAMPLE_NOTICES:
         text = sample["text"]
@@ -366,11 +366,13 @@ def run_live_benchmark(force_offline: bool = True):
         sample_id = sample["id"]
 
         ext = extract_action_items(text, force_offline=force_offline)
-        engine_name = ext["engine"]
+        sample_engine = ext.get("engine", "Deterministic Heuristic Engine (Offline / Local Mode)")
+        engines_used.append(sample_engine)
+
         if ext.get("remote_call_attempted"):
-            remote_calls_attempted += 1
+            model_extractions_attempted += 1
         if ext.get("live_model_called"):
-            remote_calls_succeeded += 1
+            model_extractions_succeeded += 1
         
         val = validate_extracted_checklist(text, ext["raw_items"])
         items = val["items"]
@@ -468,6 +470,7 @@ def run_live_benchmark(force_offline: bool = True):
             "case_id": sample_id,
             "title": sample["title"],
             "language": sample["language"],
+            "engine": sample_engine,
             "passed": case_passed,
             "items_extracted": item_count,
             "expected_count": expected_count,
@@ -477,11 +480,24 @@ def run_live_benchmark(force_offline: bool = True):
 
     pass_rate = round((passed_cases / total_samples) * 100.0, 1)
 
+    unique_engines = list(dict.fromkeys(engines_used))
+    if len(unique_engines) == 1:
+        engine_evaluated = unique_engines[0]
+    elif len(unique_engines) > 1:
+        counts = {eng: engines_used.count(eng) for eng in unique_engines}
+        summary_parts = [f"{eng} ({count}/{total_samples})" for eng, count in counts.items()]
+        engine_evaluated = f"Mixed Engines: {', '.join(summary_parts)}"
+    else:
+        engine_evaluated = "Unknown"
+
     return {
-        "engine_evaluated": engine_name,
-        "live_model_called": remote_calls_succeeded > 0,
-        "remote_calls_attempted": remote_calls_attempted,
-        "remote_calls_succeeded": remote_calls_succeeded,
+        "engine_evaluated": engine_evaluated,
+        "engines_used": unique_engines,
+        "live_model_called": model_extractions_succeeded > 0,
+        "model_extractions_attempted": model_extractions_attempted,
+        "model_extractions_succeeded": model_extractions_succeeded,
+        "remote_calls_attempted": model_extractions_attempted,
+        "remote_calls_succeeded": model_extractions_succeeded,
         "total_test_cases": total_samples,
         "passed_cases": passed_cases,
         "pass_rate_percentage": pass_rate,
@@ -502,6 +518,7 @@ def get_benchmark(
     """
     Public benchmark endpoint. Defaults to deterministic offline evaluation fixtures (zero provider cost).
     Live cloud inference requires explicit authorization via the X-Benchmark-Key header.
+    Returns 503 if live execution is authorized but provider credentials are absent.
     """
     if allow_live:
         admin_key = os.environ.get("BENCHMARK_ADMIN_KEY", "").strip()
@@ -510,6 +527,14 @@ def get_benchmark(
                 status_code=401,
                 detail="Unauthorized: Invalid or missing X-Benchmark-Key header for live benchmark execution."
             )
+
+        provider_key = os.environ.get("BACKBOARD_API_KEY", "").strip()
+        if not provider_key or provider_key.startswith("your_"):
+            raise HTTPException(
+                status_code=503,
+                detail="Service Unavailable: Live model inference provider is not configured (BACKBOARD_API_KEY missing or invalid)."
+            )
+
         return run_live_benchmark(force_offline=False)
 
     return run_live_benchmark(force_offline=True)
