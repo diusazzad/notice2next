@@ -793,3 +793,87 @@ def test_api_sample_public_notice_endpoint():
 
 
 
+
+
+# ==============================================================================
+# 8. PR 4 REGRESSION TESTS: PRIVACY, EPHEMERAL THREAD CLEANUP & BOUNDED RETRIES
+# ==============================================================================
+
+def test_query_backboard_native_thread_cleanup_on_success():
+    """Verify that Backboard native query triggers ephemeral thread deletion after response."""
+    from unittest.mock import patch, MagicMock
+    from app.extractor import query_backboard_native
+
+    mock_asts = MagicMock()
+    mock_asts.status_code = 200
+    mock_asts.json.return_value = [{"assistant_id": "asst_123"}]
+
+    mock_thread = MagicMock()
+    mock_thread.status_code = 200
+    mock_thread.json.return_value = {"thread_id": "th_456"}
+
+    mock_msg = MagicMock()
+    mock_msg.status_code = 200
+    mock_msg.json.return_value = {"content": "Sample response"}
+
+    mock_del = MagicMock()
+    mock_del.status_code = 200
+
+    with patch("app.extractor.BACKBOARD_API_KEY", "espr_test_key_123"):
+        with patch("requests.get", return_value=mock_asts):
+            with patch("requests.post", side_effect=[mock_thread, mock_msg]):
+                with patch("requests.delete", return_value=mock_del) as mock_delete:
+                    result = query_backboard_native("Test circular prompt")
+                    assert result == "Sample response"
+                    mock_delete.assert_called_once()
+                    args, kwargs = mock_delete.call_args
+                    assert "threads/th_456" in args[0]
+                    assert kwargs.get("timeout") == 3.0
+
+
+def test_query_backboard_native_thread_cleanup_on_failure():
+    """Verify that Backboard native query still cleans up thread when message post fails."""
+    from unittest.mock import patch, MagicMock
+    import requests
+    from app.extractor import query_backboard_native
+
+    mock_asts = MagicMock()
+    mock_asts.status_code = 200
+    mock_asts.json.return_value = [{"assistant_id": "asst_123"}]
+
+    mock_thread = MagicMock()
+    mock_thread.status_code = 200
+    mock_thread.json.return_value = {"thread_id": "th_fail_789"}
+
+    with patch("app.extractor.BACKBOARD_API_KEY", "espr_test_key_123"):
+        with patch("requests.get", return_value=mock_asts):
+            with patch("requests.post", side_effect=[mock_thread, requests.Timeout("Timeout")]):
+                with patch("requests.delete") as mock_delete:
+                    result = query_backboard_native("Test prompt")
+                    assert result is None
+                    mock_delete.assert_called_once()
+                    args, _ = mock_delete.call_args
+                    assert "threads/th_fail_789" in args[0]
+
+
+def test_logging_does_not_leak_raw_response_content():
+    """Verify that Gemma extraction logs only HTTP status, not raw response bodies."""
+    import logging
+    from unittest.mock import patch, MagicMock
+    from app.extractor import extract_with_gemma_api
+
+    mock_err_resp = MagicMock()
+    mock_err_resp.status_code = 500
+    sensitive_student_leak = "Notice containing sensitive Student Jane Doe ID #98765"
+    mock_err_resp.text = f"Error details echoing prompt: {sensitive_student_leak}"
+
+    with patch("app.extractor.BACKBOARD_API_KEY", "bk_test_123"):
+        with patch("requests.post", return_value=mock_err_resp):
+            with patch("app.extractor.logger.warning") as mock_log_warn:
+                res = extract_with_gemma_api("Sample notice")
+                assert res is None
+                # Check log messages: sensitive_student_leak must never appear
+                for call in mock_log_warn.call_args_list:
+                    msg = str(call[0][0])
+                    assert sensitive_student_leak not in msg
+                    assert "status 500" in msg

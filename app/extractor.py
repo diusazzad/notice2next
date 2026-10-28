@@ -41,15 +41,17 @@ def query_backboard_native(prompt: str, timeout_sec: float = 14.0) -> Optional[s
     """
     Direct client for Backboard AI (app.backboard.io) with unified routing.
     Creates thread and posts message using official X-API-Key protocol.
+    Ensures ephemeral thread cleanup so notice text does not linger in remote memory.
     """
     if not BACKBOARD_API_KEY or BACKBOARD_API_KEY.startswith("your_"):
         return None
+    headers = {
+        "X-API-Key": BACKBOARD_API_KEY,
+        "Content-Type": "application/json"
+    }
+    base = "https://app.backboard.io/api"
+    thread_id = None
     try:
-        headers = {
-            "X-API-Key": BACKBOARD_API_KEY,
-            "Content-Type": "application/json"
-        }
-        base = "https://app.backboard.io/api"
         # 1. Fetch assistant
         asts_resp = requests.get(f"{base}/assistants", headers=headers, timeout=timeout_sec)
         if asts_resp.status_code != 200:
@@ -79,8 +81,15 @@ def query_backboard_native(prompt: str, timeout_sec: float = 14.0) -> Optional[s
         if msg_resp.status_code == 200:
             return msg_resp.json().get("content")
     except Exception as e:
-        logger.warning(f"Backboard native API query exception: {e}")
+        logger.warning(f"Backboard native API query exception: {type(e).__name__}")
         return None
+    finally:
+        # Ephemeral thread cleanup: delete created thread so notice text does not linger
+        if thread_id:
+            try:
+                requests.delete(f"{base}/threads/{thread_id}", headers=headers, timeout=3.0)
+            except Exception as del_err:
+                logger.debug(f"Ephemeral thread cleanup notice: {type(del_err).__name__}")
     return None
 
 
@@ -152,9 +161,9 @@ def extract_with_gemma_api(notice_text: str, timeout_sec: float = 12.0) -> Optio
             elif isinstance(parsed, list):
                 return parsed
         else:
-            logger.warning(f"Gemma API returned status {resp.status_code}: {resp.text[:200]}")
+            logger.warning(f"Gemma API returned status {resp.status_code}")
     except Exception as e:
-        logger.warning(f"Gemma inference exception: {e}")
+        logger.warning(f"Gemma inference exception: {type(e).__name__}")
         return None
 
     return None
@@ -448,7 +457,7 @@ def clean_ocr_text(raw_ocr_text: str, timeout_sec: float = 10.0) -> Dict[str, An
                         "live_model_called": True
                     }
         except Exception as e:
-            logger.warning(f"Gemma OCR cleanup fallback: {e}")
+            logger.warning(f"Gemma OCR cleanup fallback: {type(e).__name__}")
 
     # Fallback
     deterministic_cleaned = clean_ocr_text_deterministic(raw_ocr_text)
