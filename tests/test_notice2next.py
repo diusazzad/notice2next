@@ -793,3 +793,59 @@ def test_api_sample_public_notice_endpoint():
 
 
 
+
+
+# ==============================================================================
+# 8. PR 1 REGRESSION TESTS: REQUEST SAFETY & PROVIDER COST PROTECTION
+# ==============================================================================
+
+def test_extract_request_exceeds_max_length_rejected():
+    """Verify that oversized notice text (>50,000 chars) is rejected with 422."""
+    oversized = "A" * 50001
+    res = client.post("/api/extract", json={"text": oversized})
+    assert res.status_code == 422
+
+
+def test_clean_ocr_request_exceeds_max_length_rejected():
+    """Verify that oversized OCR text (>50,000 chars) is rejected with 422."""
+    oversized = "A" * 50001
+    res = client.post("/api/clean-ocr-text", json={"raw_text": oversized})
+    assert res.status_code == 422
+
+
+def test_export_csv_items_count_bounded():
+    """Verify that exceeding 100 items in export request is rejected with 422."""
+    excess_items = [{"action": f"Task {i}", "assignee": "Teacher", "deadline": "NOT STATED"} for i in range(101)]
+    res = client.post("/api/export/csv", json={"items": excess_items})
+    assert res.status_code == 422
+
+
+def test_api_benchmark_defaults_to_deterministic_offline_fixture():
+    """Verify that GET /api/benchmark runs deterministically without live model invocation."""
+    res = client.get("/api/benchmark")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["total_test_cases"] == 6
+    assert data["passed_cases"] == 6
+    assert data["pass_rate_percentage"] == 100.0
+    assert data["live_model_called"] is False
+    assert "Deterministic Heuristic Engine" in data["engine_evaluated"]
+
+
+def test_api_benchmark_unauthorized_live_flag_rejected():
+    """Verify that GET /api/benchmark?allow_live=true without admin key stays offline."""
+    res = client.get("/api/benchmark?allow_live=true&benchmark_key=invalid_secret")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["live_model_called"] is False
+
+
+def test_request_body_size_limit_middleware():
+    """Verify that request with Content-Length exceeding 2MB returns 413."""
+    res = client.post(
+        "/api/extract",
+        content=b"dummy",
+        headers={"Content-Length": "3000000", "Content-Type": "application/json"}
+    )
+    assert res.status_code == 413
+    assert "exceeds maximum allowed size" in res.json()["detail"]

@@ -6,9 +6,9 @@ Hacktoberfest 2026 Week 3 Official Entry.
 
 import os
 from typing import List, Dict, Any, Optional
-from fastapi import FastAPI, HTTPException, Response
+from fastapi import FastAPI, HTTPException, Response, Request
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, PlainTextResponse
+from fastapi.responses import FileResponse, PlainTextResponse, JSONResponse
 from pydantic import BaseModel, Field
 
 from app.extractor import extract_action_items, clean_ocr_text, BACKBOARD_API_KEY, GEMMA_MODEL
@@ -24,33 +24,49 @@ app = FastAPI(
     version="1.0.0"
 )
 
+MAX_REQUEST_BODY_BYTES = 2 * 1024 * 1024  # 2MB maximum payload guard
+
+@app.middleware("http")
+async def limit_request_size(request: Request, call_next):
+    content_length = request.headers.get("content-length")
+    if content_length:
+        try:
+            if int(content_length) > MAX_REQUEST_BODY_BYTES:
+                return JSONResponse(
+                    status_code=413,
+                    content={"detail": "Request payload exceeds maximum allowed size (2MB)."}
+                )
+        except ValueError:
+            pass
+    return await call_next(request)
+
 # Mount static assets
 static_dir = os.path.join(os.path.dirname(__file__), "static")
 if os.path.exists(static_dir):
     app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
 
-# Pydantic Request Models
+# Pydantic Request Models (Bounded for DoS and Resource Protection)
 class ExtractRequest(BaseModel):
-    text: str = Field(..., min_length=10, description="Raw school circular or memo text")
+    text: str = Field(..., min_length=10, max_length=50000, description="Raw school circular or memo text (max 50,000 characters)")
     verify_quotes: bool = Field(True, description="Enforce deterministic substring quote verification")
 
 
 class ExportCSVRequest(BaseModel):
-    items: List[Dict[str, Any]] = Field(..., description="List of action items to export")
+    items: List[Dict[str, Any]] = Field(..., max_length=100, description="List of action items to export (max 100 items)")
 
 
 class FetchURLRequest(BaseModel):
-    url: str = Field(..., min_length=8, description="Public notice webpage or direct PDF URL")
+    url: str = Field(..., min_length=8, max_length=2048, description="Public notice webpage or direct PDF URL (max 2,048 characters)")
 
 
 class SpeakBriefingRequest(BaseModel):
-    items: List[Dict[str, Any]] = Field(..., description="List of validated action items")
-    summary: Optional[str] = Field("", description="Optional notice overview summary")
+    items: List[Dict[str, Any]] = Field(..., max_length=50, description="List of validated action items (max 50 items)")
+    summary: Optional[str] = Field("", max_length=2000, description="Optional notice overview summary (max 2,000 characters)")
 
 
 class CleanOCRRequest(BaseModel):
-    raw_text: str = Field(..., min_length=3, description="Raw OCR scanned text from photo")
+    raw_text: str = Field(..., min_length=3, max_length=50000, description="Raw OCR scanned text from photo (max 50,000 characters)")
 
 
 @app.get("/")
@@ -266,12 +282,11 @@ def get_sample_stem_directive():
     return Response(content=html, media_type="text/html")
 
 
-@app.get("/api/benchmark")
-def run_live_benchmark():
+def run_live_benchmark(force_offline: bool = True):
     """
     Runs automated evaluation across all 6 synthetic test circulars.
     Strictly verifies expected item counts, field presence, date grounding, and human-review flags.
-    Fails if any expected trait does not match.
+    Defaults to deterministic offline evaluation fixtures to prevent uncontrolled provider cost.
     """
     results = []
     total_samples = len(SAMPLE_NOTICES)
@@ -284,7 +299,7 @@ def run_live_benchmark():
         expected_count = sample["expected_items_count"]
         sample_id = sample["id"]
         
-        ext = extract_action_items(text)
+        ext = extract_action_items(text, force_offline=force_offline)
         engine_name = ext["engine"]
         live_called = ext["live_model_called"]
         
@@ -406,6 +421,20 @@ def run_live_benchmark():
             "but does not claim universal real-world accuracy across arbitrary school circulars."
         )
     }
+
+
+@app.get("/api/benchmark")
+def get_benchmark(allow_live: bool = False, benchmark_key: Optional[str] = None):
+    """
+    Public benchmark endpoint. Defaults to deterministic offline evaluation fixtures (zero provider cost).
+    Live cloud inference requires explicit authorization via BENCHMARK_ADMIN_KEY.
+    """
+    admin_key = os.environ.get("BENCHMARK_ADMIN_KEY", "").strip()
+    can_run_live = False
+    if allow_live and admin_key and benchmark_key == admin_key:
+        can_run_live = True
+
+    return run_live_benchmark(force_offline=not can_run_live)
 
 
 if __name__ == "__main__":

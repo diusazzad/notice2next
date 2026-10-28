@@ -298,7 +298,7 @@ def extract_with_deterministic_heuristic(notice_text: str) -> List[Dict[str, Any
     return actions
 
 
-def extract_action_items(notice_text: str) -> Dict[str, Any]:
+def extract_action_items(notice_text: str, force_offline: bool = False) -> Dict[str, Any]:
     """
     Main extraction pipeline:
     1. Tries Google Gemma 2 endpoint if BACKBOARD_API_KEY is configured.
@@ -312,7 +312,7 @@ def extract_action_items(notice_text: str) -> Dict[str, Any]:
 
     raw_items = None
 
-    if BACKBOARD_API_KEY and not BACKBOARD_API_KEY.startswith("your_"):
+    if not force_offline and BACKBOARD_API_KEY and not BACKBOARD_API_KEY.startswith("your_"):
         raw_items = extract_with_gemma_api(notice_text)
         if raw_items is not None:
             live_called = True
@@ -384,7 +384,7 @@ def clean_ocr_text_deterministic(raw_ocr_text: str) -> str:
     return cleaned.strip()
 
 
-def clean_ocr_text(raw_ocr_text: str, timeout_sec: float = 10.0) -> Dict[str, Any]:
+def clean_ocr_text(raw_ocr_text: str, timeout_sec: float = 10.0, force_offline: bool = False) -> Dict[str, Any]:
     """
     Reconstructs clean, coherent circular text from raw camera/photo OCR output.
     Uses Google Gemma 2 when configured; otherwise uses deterministic OCR normalizer.
@@ -392,7 +392,7 @@ def clean_ocr_text(raw_ocr_text: str, timeout_sec: float = 10.0) -> Dict[str, An
     if not raw_ocr_text or not raw_ocr_text.strip():
         return {"cleaned_text": "", "engine": "Deterministic Normalizer", "live_model_called": False}
 
-    if BACKBOARD_API_KEY and not BACKBOARD_API_KEY.startswith("your_"):
+    if not force_offline and BACKBOARD_API_KEY and not BACKBOARD_API_KEY.startswith("your_"):
         # 1. Native Backboard protocol for espr_ API keys
         if BACKBOARD_API_KEY.startswith("espr_"):
             ocr_prompt = (
