@@ -793,3 +793,56 @@ def test_api_sample_public_notice_endpoint():
 
 
 
+
+
+# ==============================================================================
+# 8. PR 2 REGRESSION TESTS: HARDENED URL & SSRF INGESTION
+# ==============================================================================
+
+def test_url_safety_rejects_embedded_credentials():
+    """Verify that URLs with embedded usernames or passwords are rejected."""
+    from app.browser_fetcher import validate_url_safety
+    is_safe, msg = validate_url_safety("https://admin:supersecret@nu.ac.bd/notice.pdf")
+    assert is_safe is False
+    assert "embedded authentication credentials" in msg
+
+
+def test_url_safety_rejects_cloud_metadata_ip():
+    """Verify that AWS/GCP cloud metadata 169.254.169.254 is strictly blocked."""
+    from app.browser_fetcher import validate_url_safety
+    is_safe, msg = validate_url_safety("http://169.254.169.254/latest/meta-data/")
+    assert is_safe is False
+    assert "blocked" in msg
+
+
+def test_url_safety_rejects_carrier_grade_nat_and_cgnat():
+    """Verify that 100.64.0.0/10 carrier-grade NAT is blocked."""
+    from app.browser_fetcher import validate_url_safety
+    is_safe, msg = validate_url_safety("http://100.64.0.1/private")
+    assert is_safe is False
+    assert "blocked" in msg
+
+
+def test_url_safety_rejects_ipv6_loopback_and_unique_local():
+    """Verify that IPv6 ::1 and fc00::/7 are blocked."""
+    from app.browser_fetcher import validate_url_safety
+    is_safe, _ = validate_url_safety("http://[::1]:8000/api")
+    assert is_safe is False
+    is_safe, _ = validate_url_safety("http://[fc00::1]/notice")
+    assert is_safe is False
+
+
+def test_url_safety_dns_rebinding_to_loopback_blocked():
+    """Verify that domain resolving to 127.0.0.1 is detected via DNS pre-resolution."""
+    from app.browser_fetcher import validate_url_safety
+    is_safe, msg = validate_url_safety("http://127.0.0.1.nip.io/admin")
+    assert is_safe is False
+    assert "resolves to restricted internal IP" in msg or "blocked" in msg
+
+
+def test_fetch_notice_url_rejects_unresolvable_or_hostile_domains():
+    """Verify that hostile or unresolvable domains fail safely with HTTP 400."""
+    res = client.post("/api/fetch-notice-url", json={"url": "http://non-existent-subdomain-123456789.org"})
+    assert res.status_code == 400
+    detail = res.json()["detail"].lower()
+    assert "resolve" in detail or "failed" in detail or "blocked" in detail
