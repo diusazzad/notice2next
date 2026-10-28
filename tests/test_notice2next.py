@@ -793,3 +793,78 @@ def test_api_sample_public_notice_endpoint():
 
 
 
+
+
+# ==============================================================================
+# 8. PR 6 REGRESSION TESTS: CSV FORMULA INJECTION (CWE-1236) PROTECTION
+# ==============================================================================
+
+def test_sanitize_csv_cell_escapes_formula_prefixes():
+    """Verify that dangerous spreadsheet formula prefixes are safely escaped with an apostrophe."""
+    from app.exporter import sanitize_csv_cell
+
+    # Formula triggers: =, +, -, @, \t, \r
+    assert sanitize_csv_cell("=CMD|' /C calc'!A0") == "'=CMD|' /C calc'!A0"
+    assert sanitize_csv_cell("@SUM(A1:A10)") == "'@SUM(A1:A10)"
+    assert sanitize_csv_cell("+12345") == "'+12345"
+    assert sanitize_csv_cell("-2+5") == "'-2+5"
+    assert sanitize_csv_cell("\ttab_attack") == "'\ttab_attack"
+    assert sanitize_csv_cell("\rreturn_attack") == "'\rreturn_attack"
+
+    # Harmless strings must NOT have apostrophe prepended
+    assert sanitize_csv_cell("Submit final roster") == "Submit final roster"
+    assert sanitize_csv_cell("Grade 10 Teachers") == "Grade 10 Teachers"
+    assert sanitize_csv_cell("$25 fee per student") == "$25 fee per student"
+
+    # Unicode preservation (Bangla and other scripts)
+    assert sanitize_csv_cell("২০২৬ শিক্ষাবর্ষের ফি") == "২০২৬ শিক্ষাবর্ষের ফি"
+
+    # Null / empty handling
+    assert sanitize_csv_cell(None) == ""
+    assert sanitize_csv_cell("") == ""
+
+
+def test_generate_csv_neutralizes_injection_in_all_columns():
+    """Verify that generate_csv sanitizes all fields in action item rows."""
+    from app.exporter import generate_csv
+
+    items = [
+        {
+            "action": "=cmd|' /C calc'!A0",
+            "assignee": "@AdminGroup",
+            "deadline": "+2026-10-31",
+            "fee_or_docs": "-$100 Discount",
+            "source_quote": "=SUM(1,2)",
+            "validation_status": "VERIFIED_QUOTE_GROUNDED",
+            "grounding_score": 1.0,
+            "is_completed": False
+        }
+    ]
+    csv_out = generate_csv(items)
+    # Check that raw unescaped triggers do NOT appear at cell boundaries
+    assert "'=cmd|' /C calc'!A0" in csv_out
+    assert "'@AdminGroup" in csv_out
+    assert "'+2026-10-31" in csv_out
+    assert "'-$100 Discount" in csv_out
+    assert "'=SUM(1,2)" in csv_out
+
+
+def test_api_export_csv_endpoint_escapes_formulas():
+    """Verify that POST /api/export/csv protects downloaded files from formula injection."""
+    payload = {
+        "items": [
+            {
+                "id": "act_test",
+                "action": "=HYPERLINK('http://malicious.site', 'Click here')",
+                "assignee": "Teachers",
+                "deadline": "NOT STATED",
+                "fee_or_docs": "NOT STATED",
+                "source_quote": "Teachers must attend.",
+                "validation_status": "VERIFIED_QUOTE_GROUNDED",
+                "is_completed": False
+            }
+        ]
+    }
+    res = client.post("/api/export/csv", json=payload)
+    assert res.status_code == 200
+    assert "'=HYPERLINK" in res.text
