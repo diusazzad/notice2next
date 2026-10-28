@@ -36,7 +36,7 @@
       
         <div class="auth-bar" id="authBar">
           <button id="authLoginBtn" class="auth-btn" title="Sign In via Auth0 Universal Login">
-            <span class="auth-icon">🔐</span> Sign In (Auth0)
+            <span class="auth-icon">🔐</span> Sign In (Educator Demo)
           </button>
           <div id="authProfile" class="auth-profile" style="display: none;">
             <span class="auth-role-tag">Educator</span>
@@ -382,8 +382,8 @@
             <div class="how-step-card">
               <div class="how-step-num">4</div>
               <div class="how-step-content">
-                <h4>Auth0 Human-in-the-Loop Governance</h4>
-                <p>Any ambiguous, ungrounded, or contradictory instruction is strictly flagged for human review. Authenticated educators can review cited evidence and authorize the item (<code>TEACHER_APPROVED_VIA_AUTH0</code>).</p>
+                <h4>Human-in-the-Loop Educator Governance</h4>
+                <p>Any ambiguous, ungrounded, or contradictory instruction is strictly flagged for human review. In this demo, educators can simulate role-based review to authorize flagged compliance tasks (<code>TEACHER_APPROVED_SIMULATION</code>).</p>
               </div>
             </div>
             <div class="how-step-card">
@@ -403,14 +403,14 @@
       <div class="modal-card auth-modal-card">
         <div class="modal-header">
           <div>
-            <h3 class="modal-title">🔐 Educator Sign In (Auth0 Governance Gate)</h3>
+            <h3 class="modal-title">🔐 Educator Role Simulation (Demo Governance)</h3>
             <p class="modal-subtitle">Verify your identity to authorize or correct flagged AI action items</p>
           </div>
           <button id="btnCloseAuthModal" class="btn-close" aria-label="Close modal">✕</button>
         </div>
         <div class="modal-body">
           <div class="auth-modal-intro" style="background: rgba(79, 70, 229, 0.08); border: 1px solid rgba(79, 70, 229, 0.2); padding: 0.85rem; border-radius: var(--radius-sm); margin-bottom: 1.25rem; font-size: 0.84rem; line-height: 1.5;">
-            In school administration, autonomous AI agents cannot make final decisions on ambiguous circulars. <strong>Notice2Next uses Auth0</strong> as a human-in-the-loop governance gate: only authenticated educators can override or approve flagged compliance tasks.
+            In school administration, autonomous AI agents cannot make final decisions on ambiguous circulars. Notice2Next models a <strong>human-in-the-loop governance gate</strong>: educators review and authorize flagged compliance tasks before action is taken. (Note: Client-side simulation for competition evaluation).
           </div>
 
           <form id="authLoginForm" class="auth-form" onsubmit="return false;">
@@ -435,7 +435,7 @@
 
             <div class="auth-form-actions">
               <button type="submit" id="btnSubmitAuthLogin" class="btn-primary" style="width: 100%; padding: 0.65rem;">
-                <span>🔐</span> Authorize & Sign In with Auth0
+                <span>🔐</span> Activate Educator Demo Role
               </button>
               <button type="button" id="btnQuickDemoEducator" class="btn-secondary" style="width: 100%; margin-top: 0.6rem; padding: 0.5rem;">
                 👤 Quick Fill: M. Rahman (Senior Educator Demo)

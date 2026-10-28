@@ -793,3 +793,32 @@ def test_api_sample_public_notice_endpoint():
 
 
 
+
+
+# ==============================================================================
+# 8. PR 5 REGRESSION TESTS: HONEST AUTH LABELS & CLIENT STATIC ASSETS
+# ==============================================================================
+
+def test_frontend_labels_honest_educator_simulation():
+    """Verify that index.html explicitly indicates client-side educator demo simulation."""
+    res = client.get("/")
+    assert res.status_code == 200
+    html = res.text
+    # Check that honest simulation labeling is present
+    assert "Educator Demo" in html or "Demo Governance" in html
+    assert "Client-side simulation" in html or "role simulation" in html.lower()
+    # Check that misleading claims of real auth0 governance gate are neutralized
+    assert "Auth0 Governance Gate)" not in html
+
+
+def test_frontend_static_js_defines_safe_storage_helpers():
+    """Verify that static/app.js contains defensive safeStorage wrappers for localStorage."""
+    res = client.get("/static/app.js")
+    assert res.status_code == 200
+    js = res.text
+    assert "safeStorageGet" in js
+    assert "safeStorageSet" in js
+    assert "safeStorageGetJSON" in js
+    assert "safeStorageRemove" in js
+    # Confirm fallback memory storage exists
+    assert "memoryStorage" in js
