@@ -5,6 +5,61 @@
  */
 
 document.addEventListener('DOMContentLoaded', () => {
+  // ==========================================
+  // DEFENSIVE CLIENT STORAGE HELPERS (UX-01)
+  // Memory fallback if localStorage throws SecurityError or quota exceeded
+  // ==========================================
+  const memoryStorage = {};
+
+  function safeStorageGet(key, defaultVal = null) {
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        const item = window.localStorage.getItem(key);
+        return item !== null ? item : defaultVal;
+      }
+    } catch (e) {
+      console.warn(`[Storage] localStorage.getItem failed for "${key}":`, e);
+    }
+    return Object.prototype.hasOwnProperty.call(memoryStorage, key) ? memoryStorage[key] : defaultVal;
+  }
+
+  function safeStorageSet(key, value) {
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        window.localStorage.setItem(key, String(value));
+        return true;
+      }
+    } catch (e) {
+      console.warn(`[Storage] localStorage.setItem failed for "${key}":`, e);
+    }
+    memoryStorage[key] = String(value);
+    return false;
+  }
+
+  function safeStorageRemove(key) {
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        window.localStorage.removeItem(key);
+        return true;
+      }
+    } catch (e) {
+      console.warn(`[Storage] localStorage.removeItem failed for "${key}":`, e);
+    }
+    delete memoryStorage[key];
+    return false;
+  }
+
+  function safeStorageGetJSON(key, defaultVal = null) {
+    const raw = safeStorageGet(key, null);
+    if (!raw) return defaultVal;
+    try {
+      return JSON.parse(raw);
+    } catch (e) {
+      console.warn(`[Storage] JSON.parse failed for "${key}":`, e);
+      return defaultVal;
+    }
+  }
+
   // DOM Elements
   const themeToggleBtn = document.getElementById('themeToggleBtn');
   const themeIcon = document.getElementById('themeIcon');
@@ -184,7 +239,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const current = document.documentElement.getAttribute('data-theme') || 'light';
     const next = current === 'dark' ? 'light' : 'dark';
     document.documentElement.setAttribute('data-theme', next);
-    localStorage.setItem('notice2next_theme', next);
+    safeStorageSet('notice2next_theme', next);
     updateThemeUI(next);
   });
 
@@ -470,15 +525,14 @@ document.addEventListener('DOMContentLoaded', () => {
   // 4. AUTH0 EDUCATOR IDENTITY & GOVERNANCE
   // ==========================================
   function updateAuthUI() {
-    const userJson = localStorage.getItem('notice2next_auth_educator');
-    const savedList = JSON.parse(localStorage.getItem('notice2next_saved_library') || '[]');
+    const user = safeStorageGetJSON('notice2next_auth_educator', null);
+    const savedList = safeStorageGetJSON('notice2next_saved_library', []);
     savedNoticeBadge.textContent = savedList.length;
 
-    if (userJson) {
-      const user = JSON.parse(userJson);
+    if (user) {
       authLoginBtn.style.display = 'none';
       authProfile.style.display = 'inline-flex';
-      authUserName.textContent = user.name || 'Verified Educator';
+      authUserName.textContent = user.name || 'Demo Educator';
     } else {
       authLoginBtn.style.display = 'inline-flex';
       authProfile.style.display = 'none';
@@ -487,7 +541,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   updateAuthUI();
 
-  // Open Auth0 Sign In Modal
+  // Open Educator Role Modal
   authLoginBtn.addEventListener('click', () => {
     authModal.style.display = 'flex';
   });
@@ -510,24 +564,24 @@ document.addEventListener('DOMContentLoaded', () => {
 
   authLoginForm.addEventListener('submit', (e) => {
     e.preventDefault();
-    const name = inputEducatorName.value.trim() || 'Verified Educator';
+    const name = inputEducatorName.value.trim() || 'Demo Educator';
     const educatorUser = {
-      id: 'auth0|educator_' + Date.now(),
+      id: 'demo|educator_' + Date.now(),
       name: name,
       school: inputEducatorSchool.value.trim() || 'Academic Institution',
       role: selectEducatorRole.value,
-      verified: true
+      is_simulated_demo: true
     };
-    localStorage.setItem('notice2next_auth_educator', JSON.stringify(educatorUser));
+    safeStorageSet('notice2next_auth_educator', JSON.stringify(educatorUser));
     updateAuthUI();
     authModal.style.display = 'none';
-    showToast(`Authenticated as ${name} via Auth0 Governance Gate. You can now authorize or correct flagged items.`, 'success', 'Educator Verified');
+    showToast(`Active as ${name} (Demo Educator Role). You can now review and approve flagged items.`, 'success', 'Demo Role Activated');
   });
 
   authLogoutBtn.addEventListener('click', () => {
-    localStorage.removeItem('notice2next_auth_educator');
+    safeStorageRemove('notice2next_auth_educator');
     updateAuthUI();
-    showToast('Signed out from educator session.', 'info', 'Session Ended');
+    showToast('Signed out from educator demo session.', 'info', 'Session Ended');
   });
 
   // How It Works Modal
@@ -553,7 +607,7 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
 
-    const savedList = JSON.parse(localStorage.getItem('notice2next_saved_library') || '[]');
+    const savedList = safeStorageGetJSON('notice2next_saved_library', []);
     const textPreview = noticeInput.value.slice(0, 90).replace(/\n/g, ' ') + '...';
     
     const record = {
@@ -566,7 +620,7 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     savedList.unshift(record);
-    localStorage.setItem('notice2next_saved_library', JSON.stringify(savedList));
+    safeStorageSet('notice2next_saved_library', JSON.stringify(savedList));
     updateAuthUI();
     showToast(`Notice successfully saved to your Personal Library (${currentItems.length} actions stored).`, 'success', 'Saved to Library');
   });
@@ -582,7 +636,7 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   function renderLibraryModal() {
-    const savedList = JSON.parse(localStorage.getItem('notice2next_saved_library') || '[]');
+    const savedList = safeStorageGetJSON('notice2next_saved_library', []);
     if (savedList.length === 0) {
       libraryModalBody.innerHTML = `
         <div class="empty-state">
@@ -630,7 +684,7 @@ document.addEventListener('DOMContentLoaded', () => {
       btn.addEventListener('click', (e) => {
         const i = parseInt(e.target.getAttribute('data-idx'), 10);
         savedList.splice(i, 1);
-        localStorage.setItem('notice2next_saved_library', JSON.stringify(savedList));
+        safeStorageSet('notice2next_saved_library', JSON.stringify(savedList));
         updateAuthUI();
         renderLibraryModal();
       });
@@ -773,8 +827,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
       const isDeadlineNotStated = (it.deadline || '').toUpperCase().includes('NOT STATED');
       const isQuoteVerified = it.quote_verified && it.validation_status === 'VERIFIED_QUOTE_GROUNDED';
-      const isTeacherApproved = it.validation_status === 'TEACHER_APPROVED_VIA_AUTH0';
-      const badgeText = isTeacherApproved ? '✓ Educator Approved (Auth0)' : (it.validation_badge_text || (isQuoteVerified ? '✓ Verbatim Quote Found' : '⚠️ Flagged for Review'));
+      const isTeacherApproved = it.validation_status === 'TEACHER_APPROVED_SIMULATION' || it.validation_status === 'TEACHER_APPROVED_VIA_AUTH0';
+      const badgeText = isTeacherApproved ? '✓ Educator Approved (Demo)' : (it.validation_badge_text || (isQuoteVerified ? '✓ Verbatim Quote Found' : '⚠️ Flagged for Review'));
 
       const isFlagged = !isQuoteVerified && !isTeacherApproved;
 
@@ -816,7 +870,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         ${isFlagged ? `
           <div class="auth0-approval-gate" id="gate-${index}">
-            <span class="auth0-gate-badge">🛡️ Auth0 Governance</span>
+            <span class="auth0-gate-badge">🛡️ Educator Review (Demo)</span>
             <span class="auth0-gate-msg">Ambiguous evidence flagged by Python validator. Human approval required before acting.</span>
             <button type="button" class="btn-gate-approve" data-index="${index}">✅ Confirm & Approve</button>
             <button type="button" class="btn-gate-reject" data-index="${index}">❌ Dismiss</button>
@@ -852,10 +906,10 @@ document.addEventListener('DOMContentLoaded', () => {
     document.querySelectorAll('.btn-gate-approve').forEach(btn => {
       btn.addEventListener('click', (e) => {
         const idx = parseInt(e.target.getAttribute('data-index'), 10);
-        currentItems[idx].validation_status = 'TEACHER_APPROVED_VIA_AUTH0';
+        currentItems[idx].validation_status = 'TEACHER_APPROVED_SIMULATION';
         currentItems[idx].quote_verified = true;
-        currentItems[idx].validation_badge_text = '✓ Educator Approved (Auth0)';
-        showToast(`Task #${idx + 1} approved by Educator via Auth0 Governance Gate.`, 'success', 'Action Approved');
+        currentItems[idx].validation_badge_text = '✓ Educator Approved (Demo)';
+        showToast(`Task #${idx + 1} approved by Educator (Demo Simulation).`, 'success', 'Action Approved');
         renderChecklist(currentItems, summary);
       });
     });
